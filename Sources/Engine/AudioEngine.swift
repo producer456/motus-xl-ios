@@ -1,0 +1,376 @@
+import AVFoundation
+
+/// Standalone Move audio engine: drum sampler + poly synths + step sequencer
+/// clock, all rendered sample-accurately inside one AVAudioSourceNode.
+final class AudioEngine {
+    static let sampleRate = 44100.0
+
+    private let engine = AVAudioEngine()
+    private var sourceNode: AVAudioSourceNode?
+
+    // ---- Shared state (audio thread reads under lock) ----
+    private let lock = NSLock()
+    private var song = Song()
+    private var kits: [Int: LoadedKit] = [:]        // track index -> kit
+    private var playing = false
+    private var resetPending = false                // consumed by render under lock
+    private var stepPos = 0.0                       // position in steps (tempo-rate independent)
+    private var metronomeOn = false
+    private var mainVolume: Float = 0.85
+    private var cutoffScale: [Float] = [1, 1, 1, 1]
+    private var resOverride: [Float] = [-1, -1, -1, -1]
+    private var attackScale: [Float] = [1, 1, 1, 1]
+    private var releaseScale: [Float] = [1, 1, 1, 1]
+    private var delaySend: [Float] = [0, 0, 0, 0]
+
+    // UI-visible transport position (read by main thread each frame).
+    private(set) var playheadStep: Double = 0
+
+    // ---- Voices (preallocated; audio thread only) ----
+    private var drumVoices = (0..<32).map { _ in DrumVoice() }
+    private var synthVoices = (0..<24).map { _ in SynthVoice() }
+
+    // ---- Immediate events from the UI ----
+    private struct LiveEvent {
+        var track: Int
+        var kind: TrackKind
+        var key: Int          // drum cell or MIDI note
+        var velocity: Int
+        var on: Bool
+        var rate: Float = 1   // pitched drum playback
+    }
+    private var eventQueue: [LiveEvent] = []
+    private var renderEvents: [LiveEvent] = []      // audio-thread scratch (swap, no malloc)
+    private var lastStepFired = -1
+    private var voiceCounter: UInt64 = 0            // for oldest-voice stealing
+
+    // ---- Tempo-synced stereo delay ----
+    private var delayL = [Float](repeating: 0, count: 88200)
+    private var delayR = [Float](repeating: 0, count: 88200)
+    private var delayPos = 0
+
+    private var metroPhase: Float = 0
+    private var metroEnv: Float = 0
+
+    func start() {
+        configureSession()
+        if sourceNode == nil {
+            let format = AVAudioFormat(standardFormatWithSampleRate: Self.sampleRate, channels: 2)!
+            let node = AVAudioSourceNode { [weak self] _, _, frameCount, abl -> OSStatus in
+                self?.render(frameCount: Int(frameCount), abl: abl)
+                return noErr
+            }
+            engine.attach(node)
+            engine.connect(node, to: engine.mainMixerNode, format: format)
+            sourceNode = node
+        }
+        engine.prepare()
+        try? engine.start()
+        observeInterruptions()
+    }
+
+    private func configureSession() {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+        try? session.setPreferredSampleRate(Self.sampleRate)
+        try? session.setPreferredIOBufferDuration(0.005)
+        try? session.setActive(true)
+    }
+
+    // MARK: - Main-thread API
+
+    func update(song: Song) {
+        lock.lock(); self.song = song; lock.unlock()
+    }
+
+    func setKit(_ kit: LoadedKit, track: Int) {
+        lock.lock(); kits[track] = kit; lock.unlock()
+    }
+
+    func setTransport(playing: Bool, fromStart: Bool = false) {
+        lock.lock()
+        self.playing = playing
+        if fromStart { resetPending = true }
+        lock.unlock()
+    }
+
+    func setMetronome(_ on: Bool) { lock.lock(); metronomeOn = on; lock.unlock() }
+    func setMainVolume(_ v: Float) { lock.lock(); mainVolume = v; lock.unlock() }
+
+    func setMacro(track: Int, cutoff: Float? = nil, res: Float? = nil,
+                  attack: Float? = nil, release: Float? = nil, delay: Float? = nil) {
+        let t = max(0, min(3, track))
+        lock.lock()
+        if let cutoff { cutoffScale[t] = cutoff }
+        if let res { resOverride[t] = res }
+        if let attack { attackScale[t] = attack }
+        if let release { releaseScale[t] = release }
+        if let delay { delaySend[t] = delay }
+        lock.unlock()
+    }
+
+    func resetMacros() {
+        lock.lock()
+        cutoffScale = [1, 1, 1, 1]
+        resOverride = [-1, -1, -1, -1]
+        attackScale = [1, 1, 1, 1]
+        releaseScale = [1, 1, 1, 1]
+        delaySend = [0, 0, 0, 0]
+        lock.unlock()
+    }
+
+    func macro(track: Int) -> (cutoff: Float, res: Float, attack: Float, release: Float, delay: Float) {
+        let t = max(0, min(3, track))
+        lock.lock(); defer { lock.unlock() }
+        return (cutoffScale[t], resOverride[t], attackScale[t], releaseScale[t], delaySend[t])
+    }
+
+    func liveNote(track: Int, kind: TrackKind, key: Int, velocity: Int, on: Bool, rate: Float = 1) {
+        lock.lock()
+        if eventQueue.count < 128 {
+            eventQueue.append(LiveEvent(track: track, kind: kind, key: key,
+                                        velocity: velocity, on: on, rate: rate))
+        }
+        lock.unlock()
+    }
+
+    var currentStep: Double {
+        lock.lock(); defer { lock.unlock() }
+        return playheadStep
+    }
+
+    var isPlaying: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return playing
+    }
+
+    // MARK: - Render
+
+    private func render(frameCount: Int, abl: UnsafeMutablePointer<AudioBufferList>) {
+        let buffers = UnsafeMutableAudioBufferListPointer(abl)
+        guard buffers.count >= 2,
+              let outL = buffers[0].mData?.assumingMemoryBound(to: Float.self),
+              let outR = buffers[1].mData?.assumingMemoryBound(to: Float.self) else {
+            // Never leave the hardware buffer with stale garbage.
+            for buffer in buffers {
+                if let data = buffer.mData { memset(data, 0, Int(buffer.mDataByteSize)) }
+            }
+            return
+        }
+
+        lock.lock()
+        let song = self.song
+        let playing = self.playing
+        if resetPending {
+            resetPending = false
+            stepPos = 0
+            lastStepFired = -1
+        }
+        swap(&eventQueue, &renderEvents)   // no copy, no malloc
+        let kits = self.kits
+        let metronomeOn = self.metronomeOn
+        let volume = self.mainVolume
+        let cutoff = cutoffScale, res = resOverride
+        let attack = attackScale, release = releaseScale
+        let delaySendAmt = delaySend
+        lock.unlock()
+
+        // Fire immediate UI events.
+        for event in renderEvents {
+            trigger(event, song: song, kits: kits, cutoff: cutoff, res: res,
+                    attack: attack, release: release)
+        }
+        renderEvents.removeAll(keepingCapacity: true) // uniquely owned here
+
+        let framesPerStep = Self.sampleRate * 60 / max(20, song.tempo) / 4
+        let stepInc = 1.0 / framesPerStep
+        var wetL: Float = 0, wetR: Float = 0
+        // Per-track gain, applied at the voice sum.
+        var trackGain: [Float] = [1, 1, 1, 1]
+        for (i, t) in song.tracks.enumerated() where i < 4 {
+            trackGain[i] = Float(t.volume)
+        }
+
+        for frame in 0..<frameCount {
+            if playing {
+                // Step boundary crossing (with swing on offbeat 16ths).
+                // stepPos advances by rate, so tempo changes never warp position.
+                let rawStep = Int(stepPos)
+                if rawStep != lastStepFired {
+                    let swingDelay = rawStep % 2 == 1 ? song.swing * 0.5 : 0
+                    if stepPos >= Double(rawStep) + swingDelay {
+                        lastStepFired = rawStep
+                        fireStep(rawStep, song: song, kits: kits, cutoff: cutoff, res: res,
+                                 attack: attack, release: release)
+                        if metronomeOn && rawStep % 4 == 0 {
+                            metroEnv = 1
+                            metroPhase = 0
+                        }
+                    }
+                }
+                stepPos += stepInc
+            }
+
+            var l: Float = 0, r: Float = 0
+            for voice in drumVoices where voice.active {
+                let (vl, vr) = voice.render()
+                let t = max(0, min(3, voice.track))
+                let gain = trackGain[t]
+                l += vl * gain; r += vr * gain
+                wetL += vl * gain * delaySendAmt[t]
+                wetR += vr * gain * delaySendAmt[t]
+            }
+            for voice in synthVoices where voice.active {
+                let v = voice.render()
+                let t = max(0, min(3, voice.track))
+                let gain = trackGain[t]
+                l += v * gain; r += v * gain
+                wetL += v * gain * delaySendAmt[t]
+                wetR += v * gain * delaySendAmt[t]
+            }
+
+            // Metronome click (short sine blip).
+            if metroEnv > 0.001 {
+                metroPhase += 1800 / Float(Self.sampleRate)
+                if metroPhase >= 1 { metroPhase -= 1 }
+                let click = sin(2 * .pi * metroPhase) * metroEnv * 0.25
+                l += click; r += click
+                metroEnv *= 0.9992
+            }
+
+            // Tempo-synced delay (3/16), simple feedback, ping-ponged a bit.
+            let delayFrames = min(delayL.count - 1, Int(framesPerStep * 3))
+            let readPos = (delayPos - delayFrames + delayL.count) % delayL.count
+            let dl = delayL[readPos], dr = delayR[readPos]
+            delayL[delayPos] = wetL + dr * 0.45
+            delayR[delayPos] = wetR + dl * 0.45
+            delayPos = (delayPos + 1) % delayL.count
+            wetL = 0; wetR = 0
+            l += dl * 0.8; r += dr * 0.8
+
+            // Master soft limiter.
+            outL[frame] = tanh(l * volume * 1.2)
+            outR[frame] = tanh(r * volume * 1.2)
+        }
+
+        // Publish playhead for the UI.
+        lock.lock()
+        playheadStep = stepPos
+        lock.unlock()
+    }
+
+    private func fireStep(_ absStep: Int, song: Song, kits: [Int: LoadedKit],
+                          cutoff: [Float], res: [Float], attack: [Float], release: [Float]) {
+        for (trackIndex, track) in song.tracks.enumerated() where !track.muted {
+            guard track.clips.indices.contains(song.selectedScene) else { continue }
+            let clip = track.clips[song.selectedScene]
+            guard !clip.notes.isEmpty else { continue }
+            let localStep = absStep % clip.steps
+            for note in clip.notes where note.step == localStep {
+                if track.kind == .drum && track.mutedCells.contains(note.key) { continue }
+                let started = trigger(LiveEvent(track: trackIndex, kind: track.kind, key: note.key,
+                                                velocity: note.velocity, on: true),
+                                      song: song, kits: kits, cutoff: cutoff, res: res,
+                                      attack: attack, release: release)
+                // Schedule the note-off on exactly the voice this step started
+                // (matching by pitch would also cut finger-held notes short).
+                started?.autoOffFrames = Int(note.lengthSteps * Self.sampleRate * 60 / max(20, song.tempo) / 4)
+            }
+        }
+    }
+
+    /// Returns the synth voice it started (for length scheduling), else nil.
+    @discardableResult
+    private func trigger(_ event: LiveEvent, song: Song, kits: [Int: LoadedKit],
+                         cutoff: [Float], res: [Float], attack: [Float], release: [Float]) -> SynthVoice? {
+        let t = max(0, min(3, event.track))
+        voiceCounter += 1
+        if event.kind == .drum {
+            guard event.on, let kit = kits[t],
+                  event.key >= 0, event.key < 16 else { return nil }
+            let voice = drumVoices.first(where: { !$0.active })
+                ?? drumVoices.min(by: { $0.order < $1.order })!   // steal oldest
+            voice.order = voiceCounter
+            voice.start(sample: kit.cells[event.key], track: t,
+                        velocity: event.velocity, rate: event.rate)
+        } else {
+            if event.on {
+                let soundIndex = song.tracks.indices.contains(t)
+                    ? song.tracks[t].soundIndex : 0
+                var preset = SynthPreset.all[soundIndex % SynthPreset.all.count]
+                preset.attack *= attack[t]
+                preset.release *= release[t]
+                let voice = synthVoices.first(where: { !$0.active })
+                    ?? synthVoices.min(by: { $0.order < $1.order })!   // steal oldest
+                voice.order = voiceCounter
+                voice.noteOn(track: t, note: event.key, velocity: event.velocity,
+                             preset: preset, cutoffScale: cutoff[t],
+                             resOverride: res[t])
+                return voice
+            } else {
+                // Finger release: only end finger-held voices, not sequenced
+                // ones running their own length countdown.
+                for voice in synthVoices
+                where voice.active && voice.track == t && voice.note == event.key
+                    && voice.autoOffFrames == 0 {
+                    voice.noteOff()
+                }
+            }
+        }
+        return nil
+    }
+
+    private func observeInterruptions() {
+        let center = NotificationCenter.default
+        center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
+            guard let info = note.userInfo,
+                  let raw = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+            if type == .ended {
+                self?.configureSession()
+                self?.engine.prepare()
+                try? self?.engine.start()
+            }
+        }
+        center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            if self?.engine.isRunning == false { try? self?.engine.start() }
+        }
+        center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.configureSession()
+            self?.engine.prepare()
+            try? self?.engine.start()
+        }
+    }
+}
+
+/// Sample-playback voice for drum cells (with rate for 16 Pitches).
+final class DrumVoice {
+    var active = false
+    var track = -1
+    var order: UInt64 = 0
+    private var sample = SampleBuffer()
+    private var pos: Float = 0
+    private var rate: Float = 1
+    private var gain: Float = 1
+
+    func start(sample: SampleBuffer, track: Int, velocity: Int, rate: Float) {
+        guard sample.frames > 0 else { return }
+        self.sample = sample
+        self.track = track
+        self.rate = max(0.05, rate)   // rate <= 0 would trap or hang the voice
+        self.gain = Float(velocity) / 127
+        pos = 0
+        active = true
+    }
+
+    func render() -> (Float, Float) {
+        let index = Int(pos)
+        guard index < sample.frames - 1 else { active = false; return (0, 0) }
+        // Linear interpolation between frames for pitched playback.
+        let frac = pos - Float(index)
+        let l = sample.left[index] * (1 - frac) + sample.left[index + 1] * frac
+        let r = sample.right[index] * (1 - frac) + sample.right[index + 1] * frac
+        pos += rate
+        return (l * gain, r * gain)
+    }
+}

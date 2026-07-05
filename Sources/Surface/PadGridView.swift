@@ -1,0 +1,211 @@
+import SwiftUI
+import UIKit
+
+/// UIKit multi-touch surface for the 32 pads: instant touchesBegan response
+/// (no gesture-recognizer latency), slide between pads, and pressure-ish
+/// aftertouch from touch radius changes.
+struct PadGridView: UIViewRepresentable {
+    @EnvironmentObject var client: Brain
+    var colors: [Int: SIMD3<Double>]
+    var channels: [Int: Int]
+
+    func makeUIView(context: Context) -> PadGridUIView {
+        let view = PadGridUIView()
+        view.client = client
+        return view
+    }
+
+    func updateUIView(_ view: PadGridUIView, context: Context) {
+        view.client = client
+        view.apply(colors: colors, channels: channels)
+    }
+}
+
+final class PadGridUIView: UIView {
+    weak var client: Brain?
+
+    static let columns = 8, rows = 4
+    private var padLayers: [CALayer] = []
+    private var pillowLayers: [CAGradientLayer] = []
+    private var touchPads: [UITouch: Int] = [:]
+    private var lastColors: [Int: SIMD3<Double>] = [:]
+    private var lastChannels: [Int: Int] = [:]
+
+    // Unlit silicone: warm light gray, not paper white.
+    private static let unlitColor = UIColor(red: 0.92, green: 0.915, blue: 0.895, alpha: 1)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isMultipleTouchEnabled = true
+        backgroundColor = .clear
+        for _ in 0..<(Self.columns * Self.rows) {
+            let pad = CALayer()
+            pad.backgroundColor = Self.unlitColor.cgColor
+            pad.shadowColor = UIColor.black.cgColor
+            pad.shadowOpacity = 0.5
+            pad.shadowRadius = 3
+            pad.shadowOffset = CGSize(width: 0, height: 2)
+            layer.addSublayer(pad)
+            padLayers.append(pad)
+
+            // Pillow shading: soft top highlight fading out, faint shade at the
+            // bottom edge — makes the flat layer read as domed silicone.
+            let pillow = CAGradientLayer()
+            pillow.colors = [UIColor.white.withAlphaComponent(0.20).cgColor,
+                             UIColor.clear.cgColor,
+                             UIColor.black.withAlphaComponent(0.10).cgColor]
+            pillow.locations = [0.0, 0.45, 1.0]
+            layer.addSublayer(pillow)
+            pillowLayers.append(pillow)
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private var gap: CGFloat { bounds.width * 0.014 }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let cellW = (bounds.width - gap * CGFloat(Self.columns - 1)) / CGFloat(Self.columns)
+        let cellH = (bounds.height - gap * CGFloat(Self.rows - 1)) / CGFloat(Self.rows)
+        for index in padLayers.indices {
+            let row = index / Self.columns, col = index % Self.columns
+            let frame = CGRect(x: CGFloat(col) * (cellW + gap),
+                               y: CGFloat(row) * (cellH + gap),
+                               width: cellW, height: cellH)
+            let radius = min(cellW, cellH) * 0.18
+            padLayers[index].frame = frame
+            padLayers[index].cornerRadius = radius
+            pillowLayers[index].frame = frame
+            pillowLayers[index].cornerRadius = radius
+        }
+        apply(colors: lastColors, channels: lastChannels, force: true)
+    }
+
+    func apply(colors: [Int: SIMD3<Double>], channels: [Int: Int], force: Bool = false) {
+        if !force && colors == lastColors && channels == lastChannels { return }
+        lastColors = colors
+        lastChannels = channels
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for index in padLayers.indices {
+            let note = Brain.padNote(index)
+            let rgb = colors[note]
+            let isLit = rgb.map { $0.max() > 0.02 } ?? false
+            if let rgb, isLit {
+                // Backlit silicone: LED color shows through the translucent pad.
+                // Less white lift than before — the photo's lit pads stay saturated.
+                let color = UIColor(red: 0.15 + 0.85 * rgb.x, green: 0.15 + 0.85 * rgb.y,
+                                    blue: 0.15 + 0.85 * rgb.z, alpha: 1)
+                padLayers[index].backgroundColor = color.cgColor
+                // The pad IS the light source: its silicone rim glows brightest.
+                padLayers[index].borderWidth = 1.5
+                padLayers[index].borderColor = UIColor(
+                    red: 0.4 + 0.6 * rgb.x, green: 0.4 + 0.6 * rgb.y,
+                    blue: 0.4 + 0.6 * rgb.z, alpha: 0.9).cgColor
+                // Deck bleed is minimal on the real unit — color shows only in the
+                // narrow gaps between pads and dies before open deck. Tight radius,
+                // low opacity.
+                padLayers[index].shadowColor = UIColor(
+                    red: rgb.x, green: rgb.y, blue: rgb.z, alpha: 1).cgColor
+                padLayers[index].shadowOpacity = 0.35
+                padLayers[index].shadowRadius = max(2, gap)
+                padLayers[index].shadowOffset = .zero
+                if (channels[note] ?? 0) != 0 {
+                    startPulse(padLayers[index])
+                } else {
+                    stopPulse(padLayers[index])
+                }
+            } else {
+                padLayers[index].backgroundColor = Self.unlitColor.cgColor
+                padLayers[index].borderWidth = 0
+                // Restore the plain dark contact shadow.
+                padLayers[index].shadowColor = UIColor.black.cgColor
+                padLayers[index].shadowOpacity = 0.5
+                padLayers[index].shadowRadius = 3
+                padLayers[index].shadowOffset = CGSize(width: 0, height: 2)
+                stopPulse(padLayers[index])
+            }
+        }
+        CATransaction.commit()
+    }
+
+    private func startPulse(_ layer: CALayer) {
+        guard layer.animation(forKey: "pulse") == nil else { return }
+        let anim = CABasicAnimation(keyPath: "opacity")
+        anim.fromValue = 1.0; anim.toValue = 0.55
+        anim.duration = 0.45
+        anim.autoreverses = true
+        anim.repeatCount = .infinity
+        layer.add(anim, forKey: "pulse")
+    }
+
+    private func stopPulse(_ layer: CALayer) {
+        layer.removeAnimation(forKey: "pulse")
+    }
+
+    private func padIndex(at point: CGPoint) -> Int? {
+        guard bounds.contains(point) else { return nil }
+        let cellW = bounds.width / CGFloat(Self.columns)
+        let cellH = bounds.height / CGFloat(Self.rows)
+        let col = min(Self.columns - 1, max(0, Int(point.x / cellW)))
+        let row = min(Self.rows - 1, max(0, Int(point.y / cellH)))
+        return row * Self.columns + col
+    }
+
+    private func velocity(for touch: UITouch) -> Int {
+        // No force on iPad touches; approximate from contact radius.
+        let radius = touch.majorRadius
+        return max(40, min(127, Int(40 + (radius - 8) * 6)))
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        for touch in touches {
+            guard let index = padIndex(at: touch.location(in: self)) else { continue }
+            touchPads[touch] = index
+            client?.pad(index, down: true, velocity: velocity(for: touch))
+            pressVisual(index, down: true)
+        }
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        for touch in touches {
+            guard let previous = touchPads[touch] else { continue }
+            guard let index = padIndex(at: touch.location(in: self)) else { continue }
+            if index != previous {
+                client?.pad(previous, down: false)
+                pressVisual(previous, down: false)
+                client?.pad(index, down: true, velocity: velocity(for: touch))
+                pressVisual(index, down: true)
+                touchPads[touch] = index
+            }
+        }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        endTouches(touches)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        endTouches(touches)
+    }
+
+    private func endTouches(_ touches: Set<UITouch>) {
+        for touch in touches {
+            guard let index = touchPads.removeValue(forKey: touch) else { continue }
+            client?.pad(index, down: false)
+            pressVisual(index, down: false)
+        }
+    }
+
+    private func pressVisual(_ index: Int, down: Bool) {
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.08)
+        let transform = down
+            ? CATransform3DMakeScale(0.96, 0.96, 1)
+            : CATransform3DIdentity
+        padLayers[index].transform = transform
+        pillowLayers[index].transform = transform
+        CATransaction.commit()
+    }
+}

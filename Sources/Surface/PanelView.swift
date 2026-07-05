@@ -128,6 +128,7 @@ struct PanelView: View {
     static let stepLegends: [Int: (icon: String?, text: String?)] = [
         0:  ("circle.grid.2x2.fill", nil),   // Set Overview
         1:  ("gearshape.fill", nil),         // Setup
+        2:  ("slider.horizontal.3", nil),    // Workflow Settings
         4:  ("timer", nil),                  // Tempo
         5:  ("metronome.fill", nil),         // Metronome
         6:  ("shuffle", nil),                // Groove / swing

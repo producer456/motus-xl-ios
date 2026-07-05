@@ -23,12 +23,18 @@ final class Brain: ObservableObject {
     private var mode = Mode.note
 
     enum Menu: Equatable {
-        case none, tempo, groove, metronome, scale, browser, setup, loopLength
+        case none, tempo, groove, metronome, scale, browser, setup, loopLength, workflow
         case message(String)
     }
     private var menu = Menu.none
     private var browserIndex = 0
     private var scaleEditingRoot = true
+
+    // Workflow settings (manual ch 13) — device settings, persisted outside the song.
+    private var countInOn = UserDefaults.standard.bool(forKey: "wf.countIn")
+    private var autoloadOn = UserDefaults.standard.bool(forKey: "wf.autoload")
+    private var workflowEditingCountIn = true
+    private var browserOriginalSound: Int?   // autoload preview rollback
 
     // Held modifiers
     private var shiftHeld = false
@@ -64,7 +70,7 @@ final class Brain: ObservableObject {
 
     /// Step indices that have a Shift function (see shiftStep) — these get an
     /// illuminated legend under the step button on the panel.
-    static let legendSteps = [0, 1, 4, 5, 6, 8, 9, 14, 15]
+    static let legendSteps = [0, 1, 2, 4, 5, 6, 8, 9, 14, 15]
 
     // MARK: - Lifecycle
 
@@ -214,7 +220,7 @@ final class Brain: ObservableObject {
     private var pendingRecordings: [Int: (step: Int, startPos: Double)] = [:]
 
     private func recordHit(key: Int, velocity: Int) {
-        guard recording, engine.isPlaying else { return }
+        guard recording, engine.isPlaying, !engine.inCountIn else { return }
         let clip = track.clips[song.selectedScene]
         // Floor-quantize into the CURRENT step (which already fired) — nearest-
         // rounding wrote hits into the upcoming step, which the sequencer then
@@ -401,6 +407,7 @@ final class Brain: ObservableObject {
         switch index {
         case 0: mode = .setOverview; menu = .none; refresh()
         case 1: menu = .setup; refresh()
+        case 2: menu = .workflow; refresh()
         case 4: menu = .tempo; refresh()
         case 5:
             metronomeOn.toggle()
@@ -449,6 +456,7 @@ final class Brain: ObservableObject {
         case "note":
             if down {
                 mode = mode == .note ? .session : .note
+                cancelBrowserPreview()
                 menu = .none
                 copiedClip = nil
                 clearEntryState()
@@ -482,7 +490,7 @@ final class Brain: ObservableObject {
         if muteHeld {
             edit { $0.tracks[index].muted.toggle() }
         } else {
-            if menu == .browser { menu = .none } // stale list would commit a random sound
+            if menu == .browser { cancelBrowserPreview(); menu = .none } // stale list would commit a random sound
             clearEntryState()
             adjust { $0.selectedTrack = index }
             barPage = 0
@@ -507,14 +515,27 @@ final class Brain: ObservableObject {
             if !recording { pendingRecordings.removeAll() }
         } else {
             recording = true
-            engine.setTransport(playing: true, fromStart: true)
+            // Count-in (manual 13.3): one bar of clicks before sequencing starts.
+            engine.setTransport(playing: true, fromStart: true,
+                                countInSteps: countInOn ? 16 : 0)
         }
         refresh()
+    }
+
+    /// Leaving the browser without committing: roll back an autoload preview.
+    private func cancelBrowserPreview() {
+        guard menu == .browser else { return }
+        if autoloadOn, let original = browserOriginalSound, original != track.soundIndex {
+            adjust { $0.tracks[$0.selectedTrack].soundIndex = original }
+            if track.kind == .drum { loadKit(track: song.selectedTrack, index: original) }
+        }
+        browserOriginalSound = nil
     }
 
     private func backButton() {
         copiedClip = nil
         if menu != .none {
+            cancelBrowserPreview()
             menu = .none
         } else if mode == .setOverview {
             mode = .note
@@ -529,7 +550,7 @@ final class Brain: ObservableObject {
             barPage = min(pages - 1, max(0, barPage + direction))
             refresh()
         } else {
-            if menu == .browser { menu = .none }
+            if menu == .browser { cancelBrowserPreview(); menu = .none }
             clearEntryState()
             adjust { $0.selectedTrack = min(3, max(0, $0.selectedTrack + direction)) }
             barPage = 0
@@ -546,19 +567,28 @@ final class Brain: ObservableObject {
         switch menu {
         case .none:
             browserIndex = track.soundIndex
+            browserOriginalSound = track.soundIndex
             menu = .browser
         case .browser:
             let count = track.kind == .drum ? DrumKits.names.count : SynthPreset.all.count
             guard count > 0 else { menu = .none; break }
             let chosen = ((browserIndex % count) + count) % count
+            // Autoload preview already set soundIndex without an undo entry;
+            // rewind to the original first so the commit is a real undo step.
+            if autoloadOn, let original = browserOriginalSound {
+                adjust { $0.tracks[$0.selectedTrack].soundIndex = original }
+            }
             edit { $0.tracks[$0.selectedTrack].soundIndex = chosen }
             if track.kind == .drum { loadKit(track: song.selectedTrack, index: chosen) }
+            browserOriginalSound = nil
             menu = .none
         case .scale:
             scaleEditingRoot.toggle()
         case .metronome:
             metronomeOn.toggle()
             engine.setMetronome(metronomeOn)
+        case .workflow:
+            workflowEditingCountIn.toggle()
         default:
             menu = .none
         }
@@ -575,6 +605,25 @@ final class Brain: ObservableObject {
             adjust { $0.swing = min(1, max(0, $0.swing + Double(delta) * 0.02)) }
         case .browser:
             browserIndex += delta
+            // Autoload (manual 13.3): preview the highlighted sound immediately.
+            if autoloadOn {
+                let count = track.kind == .drum ? DrumKits.names.count : SynthPreset.all.count
+                if count > 0 {
+                    let sel = ((browserIndex % count) + count) % count
+                    adjust { $0.tracks[$0.selectedTrack].soundIndex = sel }
+                    if track.kind == .drum { loadKit(track: song.selectedTrack, index: sel) }
+                }
+            }
+            refresh()
+        case .workflow:
+            // Wheel right = ON, left = OFF for the highlighted setting.
+            if workflowEditingCountIn {
+                countInOn = delta > 0
+                UserDefaults.standard.set(countInOn, forKey: "wf.countIn")
+            } else {
+                autoloadOn = delta > 0
+                UserDefaults.standard.set(autoloadOn, forKey: "wf.autoload")
+            }
             refresh()
         case .scale:
             adjust {
@@ -768,6 +817,13 @@ final class Brain: ObservableObject {
             s.text("LOOP LENGTH", x: 4, y: 4)
             s.textCentered("\(track.clips[song.selectedScene].bars) BAR\(track.clips[song.selectedScene].bars > 1 ? "S" : "")", y: 24, size: 2)
             s.textCentered("WHEEL: 1/2/4/8", y: 50)
+        case .workflow:
+            s.text("WORKFLOW", x: 4, y: 4)
+            if workflowEditingCountIn { s.fillRect(2, 17, 124, 12) }
+            s.text("COUNT-IN  \(countInOn ? "ON" : "OFF")", x: 6, y: 20, invert: workflowEditingCountIn)
+            if !workflowEditingCountIn { s.fillRect(2, 31, 124, 12) }
+            s.text("AUTOLOAD  \(autoloadOn ? "ON" : "OFF")", x: 6, y: 34, invert: !workflowEditingCountIn)
+            s.textCentered("WHEEL SET / PRESS NEXT", y: 52)
         case .setup:
             s.text("SETUP", x: 4, y: 4)
             s.text("MOTUS 1.0", x: 4, y: 20)

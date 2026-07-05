@@ -15,6 +15,9 @@ final class AudioEngine {
     private var playing = false
     private var resetPending = false                // consumed by render under lock
     private var stepPos = 0.0                       // position in steps (tempo-rate independent)
+    private var pendingCountIn = 0                  // set under lock; consumed with resetPending
+    private var countInStepsLeft = 0                // render-owned: clicks only, no sequencing
+    private var inCountInShared = false             // published for the UI under lock
     private var metronomeOn = false
     private var mainVolume: Float = 0.85
     private var cutoffScale: [Float] = [1, 1, 1, 1]
@@ -87,11 +90,18 @@ final class AudioEngine {
         lock.lock(); kits[track] = kit; lock.unlock()
     }
 
-    func setTransport(playing: Bool, fromStart: Bool = false) {
+    func setTransport(playing: Bool, fromStart: Bool = false, countInSteps: Int = 0) {
         lock.lock()
         self.playing = playing
         if fromStart { resetPending = true }
+        pendingCountIn = playing ? countInSteps : 0
         lock.unlock()
+    }
+
+    /// True while the count-in bar's clicks are sounding (before sequencing).
+    var inCountIn: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return inCountInShared
     }
 
     func setMetronome(_ on: Bool) { lock.lock(); metronomeOn = on; lock.unlock() }
@@ -165,6 +175,8 @@ final class AudioEngine {
             resetPending = false
             stepPos = 0
             lastStepFired = -1
+            countInStepsLeft = pendingCountIn
+            pendingCountIn = 0
         }
         swap(&eventQueue, &renderEvents)   // no copy, no malloc
         let kits = self.kits
@@ -192,7 +204,24 @@ final class AudioEngine {
         }
 
         for frame in 0..<frameCount {
-            if playing {
+            if playing, countInStepsLeft > 0 {
+                // Count-in bar: metronome clicks only — the sequencer holds
+                // until the bar completes, then position resets to step 0.
+                let rawStep = Int(stepPos)
+                if rawStep != lastStepFired {
+                    lastStepFired = rawStep
+                    if rawStep % 4 == 0 {
+                        metroEnv = 1
+                        metroPhase = 0
+                    }
+                }
+                stepPos += stepInc
+                if Int(stepPos) >= countInStepsLeft {
+                    countInStepsLeft = 0
+                    stepPos = 0
+                    lastStepFired = -1
+                }
+            } else if playing {
                 // Step boundary crossing (with swing on offbeat 16ths).
                 // stepPos advances by rate, so tempo changes never warp position.
                 let rawStep = Int(stepPos)
@@ -256,6 +285,7 @@ final class AudioEngine {
         // Publish playhead for the UI.
         lock.lock()
         playheadStep = stepPos
+        inCountInShared = countInStepsLeft > 0
         lock.unlock()
     }
 

@@ -404,6 +404,7 @@ final class Brain: ObservableObject {
     }
 
     private func shiftStep(_ index: Int) {
+        cancelBrowserPreview()   // any menu jump abandons an autoload preview
         switch index {
         case 0: mode = .setOverview; menu = .none; refresh()
         case 1: menu = .setup; refresh()
@@ -465,7 +466,11 @@ final class Brain: ObservableObject {
         case "back":
             if down { backButton() }
         case "loop":
-            if down { menu = menu == .loopLength ? .none : .loopLength; refresh() }
+            if down {
+                cancelBrowserPreview()
+                menu = menu == .loopLength ? .none : .loopLength
+                refresh()
+            }
         case "capture":
             if down { showOverlay("CAPTURE", 0, "COMING IN M2") }
         case "sample":
@@ -823,7 +828,7 @@ final class Brain: ObservableObject {
             s.text("COUNT-IN  \(countInOn ? "ON" : "OFF")", x: 6, y: 20, invert: workflowEditingCountIn)
             if !workflowEditingCountIn { s.fillRect(2, 31, 124, 12) }
             s.text("AUTOLOAD  \(autoloadOn ? "ON" : "OFF")", x: 6, y: 34, invert: !workflowEditingCountIn)
-            s.textCentered("WHEEL SET / PRESS NEXT", y: 52)
+            s.textCentered("TURN=SET PRESS=SWAP", y: 52)
         case .setup:
             s.text("SETUP", x: 4, y: 4)
             s.text("MOTUS 1.0", x: 4, y: 20)

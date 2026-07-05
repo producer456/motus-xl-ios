@@ -99,9 +99,11 @@ final class AudioEngine {
     }
 
     /// True while the count-in bar's clicks are sounding (before sequencing).
+    /// Includes the not-yet-rendered pending state so a pad hit immediately
+    /// after Record (before the first audio callback) can't slip into step 0.
     var inCountIn: Bool {
         lock.lock(); defer { lock.unlock() }
-        return inCountInShared
+        return inCountInShared || pendingCountIn > 0
     }
 
     func setMetronome(_ on: Bool) { lock.lock(); metronomeOn = on; lock.unlock() }
@@ -177,6 +179,7 @@ final class AudioEngine {
             lastStepFired = -1
             countInStepsLeft = pendingCountIn
             pendingCountIn = 0
+            inCountInShared = countInStepsLeft > 0  // publish before render body
         }
         swap(&eventQueue, &renderEvents)   // no copy, no malloc
         let kits = self.kits

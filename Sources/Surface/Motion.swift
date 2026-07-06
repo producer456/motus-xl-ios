@@ -23,9 +23,13 @@ final class MotionSource: ObservableObject {
             }
             let target = CGPoint(x: max(-1, min(1, x * 2.2)),
                                  y: max(-1, min(1, y * 2.2)))
-            // Low-pass so the light glides instead of jittering.
-            tilt = CGPoint(x: tilt.x + (target.x - tilt.x) * 0.12,
-                           y: tilt.y + (target.y - tilt.y) * 0.12)
+            // Low-pass so the light glides instead of jittering; skip
+            // sub-pixel publishes so a resting iPad doesn't re-render.
+            let next = CGPoint(x: tilt.x + (target.x - tilt.x) * 0.12,
+                               y: tilt.y + (target.y - tilt.y) * 0.12)
+            if abs(next.x - tilt.x) > 0.0015 || abs(next.y - tilt.y) > 0.0015 {
+                tilt = next
+            }
         }
     }
 

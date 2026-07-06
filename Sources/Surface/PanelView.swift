@@ -7,6 +7,7 @@ import SwiftUI
 struct PanelView: View {
     @EnvironmentObject var client: Brain
     @StateObject private var motion = MotionSource()
+    @Environment(\.scenePhase) private var scenePhase
 
     static let designSize = CGSize(width: 1014, height: 699)
 
@@ -18,6 +19,9 @@ struct PanelView: View {
                 Color.black.ignoresSafeArea()
                 panel(scale: scale)
                     .onAppear { motion.start() }
+                    .onChange(of: scenePhase) { _, phase in
+                        phase == .active ? motion.start() : motion.stop()
+                    }
                     .frame(width: Self.designSize.width * scale,
                            height: Self.designSize.height * scale)
                     .position(x: geo.size.width / 2, y: geo.size.height / 2)

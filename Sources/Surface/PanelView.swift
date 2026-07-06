@@ -80,10 +80,10 @@ struct PanelView: View {
                 .allowsHitTesting(false)
 
             // Chassis screws.
-            Screw(diameter: 13 * s, angle: 37).position(x: 24 * s, y: 24 * s)
-            Screw(diameter: 13 * s, angle: 104).position(x: 990 * s, y: 24 * s)
-            Screw(diameter: 13 * s, angle: 61).position(x: 24 * s, y: 676 * s)
-            Screw(diameter: 13 * s, angle: 158).position(x: 990 * s, y: 676 * s)
+            Screw(diameter: 9 * s, angle: 37).position(x: 24 * s, y: 24 * s)
+            Screw(diameter: 9 * s, angle: 104).position(x: 990 * s, y: 24 * s)
+            Screw(diameter: 9 * s, angle: 61).position(x: 24 * s, y: 676 * s)
+            Screw(diameter: 9 * s, angle: 158).position(x: 990 * s, y: 676 * s)
 
             // Recessed wells the pads and steps sit in.
             RecessedWell(cornerRadius: 12 * s)

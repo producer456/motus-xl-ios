@@ -16,6 +16,12 @@ struct Note: Codable, Equatable {
     var off: Double { offset ?? 0 }
 }
 
+/// One automation breakpoint: pos in (fractional) steps, raw param value.
+struct AutoPoint: Codable, Equatable {
+    var pos: Double
+    var value: Double
+}
+
 struct Clip: Codable, Equatable {
     var bars: Int = 1                   // content END, in bars (1...16)
     var notes: [Note] = []
@@ -23,6 +29,11 @@ struct Clip: Codable, Equatable {
     /// Notes before it stay in the clip but don't play. Optional so old
     /// sets decode (nil = 0).
     var loopStart: Int?
+    /// Parameter automation (manual 14.2): lane key -> breakpoints. Internal
+    /// lanes: cutoff/res/attack/release/delay. AU lanes: "au.<address>".
+    var automation: [String: [AutoPoint]]?
+    /// Deactivated lanes (manual 14.2.1) — kept but not played.
+    var autoOff: [String]?
     var steps: Int { bars * 16 }
     var isEmpty: Bool { notes.isEmpty }
 
@@ -76,6 +87,9 @@ struct Song: Codable, Equatable {
     var tracks: [Track] = Song.defaultTracks()
     var selectedTrack: Int = 0
     var selectedScene: Int = 0
+    /// Set effects (manual 17.2): Dynamics thresh dB/ratio/makeup dB +
+    /// Saturator drive/color/mix. nil = defaults.
+    var fxParams: [Double]?
     var padColorIndex: Int = 0          // Set Overview pad color
 
     /// Move XL: 8 tracks — two drum, six synth.

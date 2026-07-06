@@ -30,6 +30,14 @@ final class AudioEngine {
     private var attackScale = [Float](repeating: 1, count: AudioEngine.maxTracks)
     private var releaseScale = [Float](repeating: 1, count: AudioEngine.maxTracks)
     private var delaySend = [Float](repeating: 0, count: AudioEngine.maxTracks)
+    /// Lanes with a finger on the encoder: automation is overridden while
+    /// touched (manual 14.2). Written under lock from the main thread.
+    private var autoSuspend = [Set<String>](repeating: [], count: AudioEngine.maxTracks)
+    // Master set-effects state (Dynamics -> Saturator, manual 17.2).
+    private var compEnv: Float = 0
+    private var satLPl: Float = 0
+    private var satLPr: Float = 0
+    static let fxDefaults: [Double] = [-18, 2.5, 3, 2, 0.6, 0.35]
 
     // UI-visible transport position (read by main thread each frame).
     private(set) var playheadStep: Double = 0
@@ -146,6 +154,24 @@ final class AudioEngine {
     }
 
     func setMetronome(_ on: Bool) { lock.lock(); metronomeOn = on; lock.unlock() }
+
+    /// Encoder touch-override: skip a lane's automation while it's held.
+    func setAutoSuspend(track: Int, lane: String, suspended: Bool) {
+        let t = max(0, min(Self.maxTracks - 1, track))
+        lock.lock()
+        if suspended { autoSuspend[t].insert(lane) } else { autoSuspend[t].remove(lane) }
+        lock.unlock()
+    }
+
+    /// Last breakpoint at or before pos; wraps to the final point before the
+    /// first (the loop carries the tail value around).
+    static func autoValue(_ points: [AutoPoint], at pos: Double) -> Double {
+        var best: AutoPoint?
+        for p in points where p.pos <= pos {
+            if best == nil || p.pos > best!.pos { best = p }
+        }
+        return best?.value ?? points.last!.value
+    }
     func setRecordingActive(_ on: Bool) { lock.lock(); recordingActive = on; lock.unlock() }
     func setMainVolume(_ v: Float) { lock.lock(); mainVolume = v; lock.unlock() }
 
@@ -370,12 +396,40 @@ final class AudioEngine {
         let kits = self.kits
         let metronomeOn = self.metronomeOn
         let volume = self.mainVolume
-        let cutoff = cutoffScale, res = resOverride
-        let attack = attackScale, release = releaseScale
-        let delaySendAmt = delaySend
+        var cutoff = cutoffScale, res = resOverride
+        var attack = attackScale, release = releaseScale
+        var delaySendAmt = delaySend
+        let suspend = autoSuspend
         let au = auSchedule
         var scenes = playingScene
         lock.unlock()
+
+        // Clip automation (manual 14.2): evaluate internal lanes once per
+        // block and override the encoder-set values. AU lanes are applied
+        // from the main thread (parameter trees aren't render-safe).
+        if playing && countInStepsLeft == 0 {
+            for (t, track) in song.tracks.enumerated() where t < Self.maxTracks {
+                guard t < scenes.count, let scene = scenes[t],
+                      track.clips.indices.contains(scene) else { continue }
+                let clip = track.clips[scene]
+                guard let auto = clip.automation, !auto.isEmpty else { continue }
+                let local = Double(clip.loopStartStep)
+                    + stepPos.truncatingRemainder(dividingBy: Double(clip.loopSteps))
+                let offLanes = clip.autoOff ?? []
+                for (lane, points) in auto where !points.isEmpty {
+                    guard !offLanes.contains(lane), !suspend[t].contains(lane) else { continue }
+                    let v = Float(Self.autoValue(points, at: local))
+                    switch lane {
+                    case "cutoff": cutoff[t] = v
+                    case "res": res[t] = v
+                    case "attack": attack[t] = v
+                    case "release": release[t] = v
+                    case "delay": delaySendAmt[t] = v
+                    default: break
+                    }
+                }
+            }
+        }
 
         // Fire due AU note-offs (scheduled by frame countdown).
         for i in pendingOffs.indices where pendingOffs[i].track >= 0 {
@@ -535,6 +589,31 @@ final class AudioEngine {
             delayPos = (delayPos + 1) % delayL.count
             wetL = 0; wetR = 0
             l += dl * 0.8; r += dr * 0.8
+
+            // Set effects (manual 17.2): Dynamics -> Saturator, then limiter.
+            let fx = song.fxParams ?? Self.fxDefaults
+            if fx.count >= 6 {
+                let thresh = pow(10, Float(fx[0]) / 20)
+                let ratio = max(1, Float(fx[1]))
+                let makeup = pow(10, Float(fx[2]) / 20)
+                let peak = max(abs(l), abs(r))
+                compEnv = max(peak, compEnv * 0.9995)
+                var gain: Float = 1
+                if compEnv > thresh, ratio > 1 {
+                    gain = pow(compEnv / thresh, 1 / ratio - 1)
+                }
+                l *= gain * makeup
+                r *= gain * makeup
+                let mix = Float(fx[5])
+                if mix > 0.001 {
+                    let drive = max(1, Float(fx[3]))
+                    let tone = 0.10 + 0.88 * Float(fx[4])   // color = brightness
+                    satLPl += (tanh(l * drive) - satLPl) * tone
+                    satLPr += (tanh(r * drive) - satLPr) * tone
+                    l = l * (1 - mix) + satLPl * mix * 0.9
+                    r = r * (1 - mix) + satLPr * mix * 0.9
+                }
+            }
 
             // Master soft limiter.
             outL[frame] = tanh(l * volume * 1.2)

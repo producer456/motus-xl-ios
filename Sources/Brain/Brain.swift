@@ -151,6 +151,10 @@ final class Brain: ObservableObject {
     private var metronomeOn = false
     private var mainVolume: Double = 0.85
     private var barPage = 0
+    /// Session mode: which Set effect the wheel has focused (0 Dyn, 1 Sat).
+    private var fxFocus = 0
+    /// Lanes currently under a finger (automation touch-override, 14.2).
+    private var touchedLanes: Set<String> = []
 
     /// Momentary parameter overlay (encoder turns), auto-expires.
     private var overlay: (title: String, value: Double, label: String)?
@@ -218,6 +222,7 @@ final class Brain: ObservableObject {
             return
         }
         guard engine.isPlaying else { return }
+        if !engine.inCountIn { applyAUAutomation() }
         let step = Int(engine.currentStep)
         if step != lastShownStep {
             lastShownStep = step
@@ -1620,6 +1625,81 @@ final class Brain: ObservableObject {
         refresh()
     }
 
+    // MARK: - Automation (manual 14.2)
+
+    /// Lane key for an encoder on the selected track, honoring the AU bank.
+    private func laneKey(_ index: Int) -> String? {
+        let t = song.selectedTrack
+        if engine.hasAU(track: t) {
+            guard (1...7).contains(index) else { return nil }
+            let params = engine.auParameters(track: t)
+            let pIdx = (auParamBank[t] ?? 0) * 7 + (index - 1)
+            guard params.indices.contains(pIdx) else { return nil }
+            return "au.\(params[pIdx].address)"
+        }
+        let lanes = ["cutoff", "res", "attack", "release", "delay"]
+        return index < lanes.count ? lanes[index] : nil
+    }
+
+    /// Encoder moved: while recording, write a breakpoint at the playhead;
+    /// with step(s) held, write per-step automation instead (14.2.4).
+    private func automationHook(lane: String?, value: Double) {
+        guard let lane, mode == .note else { return }
+        if !heldSteps.isEmpty || barEditActive {
+            stepEntryUsed.formUnion(heldSteps)
+            if barEditActive { loopModeEdited = true }
+            for step in heldAbsSteps() {
+                writeAutoPoint(lane: lane, pos: Double(step), value: value)
+            }
+            return
+        }
+        guard recording, engine.isPlaying, !engine.inCountIn else { return }
+        let clip = track.clips[song.selectedScene]
+        let pos = Double(clip.loopStartStep)
+            + engine.currentStep.truncatingRemainder(dividingBy: Double(clip.loopSteps))
+        writeAutoPoint(lane: lane, pos: pos, value: value)
+    }
+
+    private func writeAutoPoint(lane: String, pos: Double, value: Double) {
+        adjust { song in
+            var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
+            var points = c.automation?[lane] ?? []
+            points.removeAll { abs($0.pos - pos) < 0.1 }
+            points.append(AutoPoint(pos: pos, value: value))
+            points.sort { $0.pos < $1.pos }
+            if points.count > 512 { points.removeFirst(points.count - 512) }
+            var auto = c.automation ?? [:]
+            auto[lane] = points
+            c.automation = auto
+            var off = c.autoOff ?? []
+            off.removeAll { $0 == lane }   // writing re-activates the lane
+            c.autoOff = off.isEmpty ? nil : off
+            song.tracks[song.selectedTrack].clips[song.selectedScene] = c
+        }
+    }
+
+    /// AU lanes can't be set from the render thread; step them at UI rate.
+    private func applyAUAutomation() {
+        for (t, tr) in song.tracks.enumerated() where engine.hasAU(track: t) {
+            guard let scene = engine.playbackScene(track: t),
+                  tr.clips.indices.contains(scene) else { continue }
+            let clip = tr.clips[scene]
+            guard let auto = clip.automation else { continue }
+            let off = clip.autoOff ?? []
+            let pos = Double(clip.loopStartStep)
+                + engine.currentStep.truncatingRemainder(dividingBy: Double(clip.loopSteps))
+            var params: [AUParameter]?
+            for (lane, points) in auto where lane.hasPrefix("au.") && !points.isEmpty {
+                guard !off.contains(lane) else { continue }
+                if t == song.selectedTrack, touchedLanes.contains(lane) { continue }
+                if params == nil { params = engine.auParameters(track: t) }
+                guard let addr = UInt64(lane.dropFirst(3)),
+                      let param = params?.first(where: { $0.address == addr }) else { continue }
+                param.setValue(AUValue(AudioEngine.autoValue(points, at: pos)), originator: nil)
+            }
+        }
+    }
+
     // MARK: - Surface API: wheel / encoders / volume
 
     func wheel(delta: Int) {
@@ -1707,6 +1787,12 @@ final class Brain: ObservableObject {
             }
         case .none:
             guard mode != .setOverview else { return }
+            if mode == .session {
+                // Manual 17.2: the wheel selects the Set effect to edit.
+                fxFocus = delta > 0 ? 1 : 0
+                showOverlay("SET FX", Double(fxFocus), fxFocus == 0 ? "DYNAMICS" : "SATURATOR")
+                return
+            }
             // Main screen: wheel nudges tempo (like grabbing it quickly).
             adjust { $0.tempo = min(240, max(40, $0.tempo + Double(delta))) }
         case .powerConfirm:
@@ -1734,10 +1820,49 @@ final class Brain: ObservableObject {
     }
 
     func wheelTouch(down: Bool) {}
-    func encoderTouch(_ index: Int, down: Bool) {}
+
+    func encoderTouch(_ index: Int, down: Bool) {
+        guard poweredOn, mode == .note, let lane = laneKey(index) else { return }
+        if down, deleteHeld {
+            // Manual 14.2.3: Delete + encoder tap deletes the lane.
+            let has = track.clips[song.selectedScene].automation?[lane]?.isEmpty == false
+            guard has else { return }
+            edit { song in
+                var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
+                c.automation?[lane] = nil
+                if c.automation?.isEmpty == true { c.automation = nil }
+                c.autoOff?.removeAll { $0 == lane }
+                song.tracks[song.selectedTrack].clips[song.selectedScene] = c
+            }
+            showOverlay("AUTOMATION", 0, "DELETED")
+            return
+        }
+        if down, muteHeld {
+            // Manual 14.2.1: Mute + encoder tap toggles the lane on/off.
+            guard track.clips[song.selectedScene].automation?[lane]?.isEmpty == false else { return }
+            muteUsed = true
+            var nowOff = false
+            edit { song in
+                var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
+                var off = c.autoOff ?? []
+                if off.contains(lane) { off.removeAll { $0 == lane } } else { off.append(lane); nowOff = true }
+                c.autoOff = off.isEmpty ? nil : off
+                song.tracks[song.selectedTrack].clips[song.selectedScene] = c
+            }
+            showOverlay("AUTOMATION", nowOff ? 0 : 1, nowOff ? "OFF" : "ON")
+            return
+        }
+        // Touch-override (14.2): the finger wins while it's down.
+        if down { touchedLanes.insert(lane) } else { touchedLanes.remove(lane) }
+        engine.setAutoSuspend(track: song.selectedTrack, lane: lane, suspended: down)
+    }
 
     func encoder(_ index: Int, delta: Int) {
         guard poweredOn else { return }
+        if mode == .session {
+            editSetFX(encoder: index, delta: delta)
+            return
+        }
         let d = Float(delta)
         let t = song.selectedTrack
         // AU-hosted track (AUSeq convention): encoder 1 = track volume,
@@ -1758,6 +1883,7 @@ final class Brain: ObservableObject {
             let value = max(param.minValue,
                             min(param.maxValue, param.value + d * span / 64))
             param.setValue(value, originator: nil)
+            automationHook(lane: "au.\(param.address)", value: Double(value))
             let label = param.string(fromValue: nil) ?? String(format: "%.2f", value)
             showOverlay(String(param.displayName.prefix(18)),
                         Double((value - param.minValue) / max(0.0001, span)),
@@ -1769,23 +1895,28 @@ final class Brain: ObservableObject {
         case 0:
             m.cutoff = min(8, max(0.05, m.cutoff * (1 + d * 0.04)))
             engine.setMacro(track: t, cutoff: m.cutoff)
+            automationHook(lane: "cutoff", value: Double(m.cutoff))
             showOverlay("CUTOFF", Double(min(1, m.cutoff / 4)), String(format: "%.0f%%", m.cutoff * 100))
         case 1:
             let base = m.res < 0 ? 0.3 : m.res
             m.res = min(0.95, max(0, base + d * 0.02))
             engine.setMacro(track: t, res: m.res)
+            automationHook(lane: "res", value: Double(m.res))
             showOverlay("RESONANCE", Double(m.res), String(format: "%.0f%%", m.res * 100))
         case 2:
             m.attack = min(8, max(0.1, m.attack * (1 + d * 0.05)))
             engine.setMacro(track: t, attack: m.attack)
+            automationHook(lane: "attack", value: Double(m.attack))
             showOverlay("ATTACK", Double(min(1, m.attack / 4)), String(format: "X%.2f", m.attack))
         case 3:
             m.release = min(8, max(0.1, m.release * (1 + d * 0.05)))
             engine.setMacro(track: t, release: m.release)
+            automationHook(lane: "release", value: Double(m.release))
             showOverlay("RELEASE", Double(min(1, m.release / 4)), String(format: "X%.2f", m.release))
         case 4:
             m.delay = min(1, max(0, m.delay + d * 0.02))
             engine.setMacro(track: t, delay: m.delay)
+            automationHook(lane: "delay", value: Double(m.delay))
             showOverlay("DELAY SEND", Double(m.delay), String(format: "%.0f%%", m.delay * 100))
         case 5:
             adjust { $0.tracks[t].volume = min(1, max(0, $0.tracks[t].volume + Double(d) * 0.02)) }
@@ -1800,6 +1931,29 @@ final class Brain: ObservableObject {
         default:
             break
         }
+    }
+
+    /// Session-mode encoders edit the focused Set effect (manual 17.2).
+    /// Dynamics: threshold / ratio / makeup. Saturator: drive / color / mix.
+    private func editSetFX(encoder index: Int, delta: Int) {
+        guard index < 3 else { return }
+        var fx = song.fxParams ?? AudioEngine.fxDefaults
+        if fx.count < 6 { fx = AudioEngine.fxDefaults }
+        let p = fxFocus * 3 + index
+        let d = Double(delta)
+        let names = ["THRESHOLD", "RATIO", "MAKEUP", "DRIVE", "COLOR", "MIX"]
+        switch p {
+        case 0: fx[0] = min(0, max(-40, fx[0] + d))
+        case 1: fx[1] = min(8, max(1, fx[1] + d * 0.1))
+        case 2: fx[2] = min(12, max(0, fx[2] + d * 0.2))
+        case 3: fx[3] = min(10, max(1, fx[3] + d * 0.15))
+        case 4: fx[4] = min(1, max(0, fx[4] + d * 0.02))
+        default: fx[5] = min(1, max(0, fx[5] + d * 0.02))
+        }
+        adjust { $0.fxParams = fx }
+        let norms: [Double] = [(fx[0] + 40) / 40, (fx[1] - 1) / 7, fx[2] / 12,
+                               (fx[3] - 1) / 9, fx[4], fx[5]]
+        showOverlay(names[p], norms[p], String(format: "%.2f", fx[p]))
     }
 
     func volume(delta: Int) {
@@ -2275,10 +2429,17 @@ final class Brain: ObservableObject {
             let params = engine.auParameters(track: song.selectedTrack)
             let bank = auParamBank[song.selectedTrack] ?? 0
             var slots = ["VOL"]
+            let auto = track.clips[song.selectedScene].automation ?? [:]
             for i in 0..<7 {
                 let pIdx = bank * 7 + i
-                slots.append(params.indices.contains(pIdx)
-                             ? String(params[pIdx].displayName.prefix(6)) : "-")
+                if params.indices.contains(pIdx) {
+                    let name = String(params[pIdx].displayName.prefix(6))
+                    let lane = "au.\(params[pIdx].address)"
+                    // * = the lane has recorded automation (manual 14.2).
+                    slots.append(auto[lane]?.isEmpty == false ? "*" + String(name.prefix(5)) : name)
+                } else {
+                    slots.append("-")
+                }
             }
             for (i, name) in slots.enumerated() {
                 s.text(name, x: 4 + (i % 4) * 64, y: 92 + (i / 4) * 9)
@@ -2286,9 +2447,14 @@ final class Brain: ObservableObject {
             let banks = max(1, (params.count + 6) / 7)
             if banks > 1 { s.text("B\(bank + 1)/\(banks)", x: 224, y: 68) }
         } else {
-            let info = track.kind == .synth
-                ? "\(Scales.noteNames[song.rootNote]) \(Scales.all[song.scaleIndex].name)  OCT \(track.octave >= 0 ? "+" : "")\(track.octave)"
-                : "PAD \(track.selectedPad + 1)"
+            let info: String
+            if mode == .session {
+                info = "FX \(fxFocus == 0 ? "DYNAMICS" : "SATURATOR") - WHEEL SWAPS"
+            } else if track.kind == .synth {
+                info = "\(Scales.noteNames[song.rootNote]) \(Scales.all[song.scaleIndex].name)  OCT \(track.octave >= 0 ? "+" : "")\(track.octave)"
+            } else {
+                info = "PAD \(track.selectedPad + 1)"
+            }
             s.text(info, x: 4, y: 99)
         }
     }

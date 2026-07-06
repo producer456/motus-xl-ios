@@ -43,7 +43,7 @@ struct PanelView: View {
             // ---- Top zone: the XL's big OLED (256x128), encoders, volume ----
             DisplayView(image: client.displayImage)
                 .frame(width: 250 * s, height: 125 * s)
-                .position(x: 150 * s, y: 85 * s)
+                .position(x: 500 * s, y: 85 * s)
 
             ForEach(0..<8, id: \.self) { index in
                 EncoderView(index: index, diameter: 48 * s)
@@ -60,8 +60,8 @@ struct PanelView: View {
                 .frame(width: 8 * s, height: 8 * s)
                 .position(x: 902 * s, y: 24 * s)
 
-            EncoderView(index: 8, diameter: 56 * s) // volume
-                .position(x: 940 * s, y: 78 * s)
+            EncoderView(index: 8, diameter: 52 * s) // volume
+                .position(x: 948 * s, y: 60 * s)
 
             // ---- Left rail: wheel, back / mode ----
             WheelView(diameter: 100 * s)
@@ -144,8 +144,10 @@ struct PanelView: View {
         15: ("arrow.right.to.line", nil),    // Quantize
     ]
 
+    /// Encoders 1-4 flank the centered OLED on the left, 5-8 on the right.
     private func encoderX(_ index: Int) -> CGFloat {
-        360 + CGFloat(index) * 66
+        index < 4 ? 120 + CGFloat(index) * 75
+                  : 655 + CGFloat(index - 4) * 75
     }
 
     private func padRowY(_ row: Int) -> CGFloat {

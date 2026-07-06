@@ -21,6 +21,10 @@ struct PanelView: View {
                     .position(x: geo.size.width / 2, y: geo.size.height / 2)
             }
         }
+        // The panel is a hardware fascia — fill the physical screen, not the
+        // safe area (device insets are larger than the sim's, leaving a
+        // black border otherwise).
+        .ignoresSafeArea()
     }
 
     private func panel(scale s: CGFloat) -> some View {

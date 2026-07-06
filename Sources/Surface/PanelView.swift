@@ -158,9 +158,9 @@ struct PanelView: View {
                     Image(systemName: "power")
                         .font(.system(size: 9 * s, weight: .bold))
                         .foregroundStyle(client.poweredOn
-                                         ? Color(red: 1.0, green: 0.72, blue: 0.15)
+                                         ? Color(white: 0.95)
                                          : Color(white: 0.28))
-                        .shadow(color: Color(red: 1.0, green: 0.72, blue: 0.15)
+                        .shadow(color: Color.white
                             .opacity(client.poweredOn ? 0.6 : 0), radius: 3 * s)
                 }
             }

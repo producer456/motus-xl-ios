@@ -164,6 +164,7 @@ final class Brain: ObservableObject {
     }
 
     private func tick() {
+        guard poweredOn else { return }
         if let nav = pendingNav, Date().timeIntervalSince(nav.at) > 0.55 {
             pendingNav = nil
             switch nav.id {
@@ -1109,6 +1110,8 @@ final class Brain: ObservableObject {
         engine.setRecordingActive(false)
         releaseModifiers()
         menu = .none
+        overlay = nil
+        pendingNav = nil
         poweredOn = false
         displayImage = nil          // OLED dark
         noteColors = [:]            // every LED off
@@ -1597,6 +1600,7 @@ final class Brain: ObservableObject {
     }
 
     private func refresh() {
+        guard poweredOn else { return }
         // barPage can go stale via scene changes, loop shrink, set load, undo.
         // Allow one page past the end: the manual's "empty bar" you can fill.
         barPage = min(barPage, min(track.clips[song.selectedScene].bars, 7))
@@ -1824,6 +1828,7 @@ final class Brain: ObservableObject {
     // MARK: - LEDs
 
     private func refreshLeds() {
+        guard poweredOn else { return }
         var colors: [Int: SIMD3<Double>] = [:]
         var channels: [Int: Int] = [:]
 
@@ -1863,19 +1868,18 @@ final class Brain: ObservableObject {
                         let cell = (7 - row) * 4 + col
                         let note = Self.padNote(row * 8 + col)
                         if track.mutedCells.contains(cell) {
-                            colors[note] = SIMD3(0.15, 0.12, 0.05)
+                            continue // muted = LED off = no color
                         } else if cell == track.selectedPad {
                             colors[note] = SIMD3(1, 1, 1)
                         } else if cellsWithNotes.contains(cell) {
                             colors[note] = trackColor
-                        } else {
-                            colors[note] = trackColor * 0.25
                         }
+                        // empty cells: LED off, bare silicone
                     }
                     for col in 4..<8 {
                         let note = Self.padNote(row * 8 + col)
                         let p = (7 - row) * 4 + (col - 4)
-                        colors[note] = p == 7 ? trackColor : trackColor * 0.2
+                        if p == 7 { colors[note] = trackColor } // reference pitch only
                     }
                 }
             } else {
@@ -1980,10 +1984,10 @@ final class Brain: ObservableObject {
         }
 
         // Track buttons.
-        for t in 0..<min(8, song.tracks.count) {
+        for t in 0..<min(8, song.tracks.count) where !song.tracks[t].muted {
+            // Muted = LED off = no color at all.
             let base = Self.trackColors[t]
-            let level: Double = song.tracks[t].muted ? 0.08 : (t == song.selectedTrack ? 1.0 : 0.35)
-            colors[Self.trackNotes[t]] = base * level
+            colors[Self.trackNotes[t]] = base * (t == song.selectedTrack ? 1.0 : 0.35)
         }
 
         // Function button LEDs.

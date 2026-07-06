@@ -53,7 +53,6 @@ final class Brain: ObservableObject {
     private var metronomeOn = false
     private var mainVolume: Double = 0.85
     private var barPage = 0
-    private var scenePage = 0   // XL session: scenes 1-4 / 5-8
 
     /// Momentary parameter overlay (encoder turns), auto-expires.
     private var overlay: (title: String, value: Double, label: String)?
@@ -159,8 +158,9 @@ final class Brain: ObservableObject {
     private func notePad(_ index: Int, down: Bool, velocity: Int) {
         let row = index / 8, col = index % 8
         if track.kind == .drum {
+            guard row >= 4 else { return } // classic layout on the bottom 4 rows
             if col < 4 {
-                let cell = (3 - row) * 4 + col
+                let cell = (7 - row) * 4 + col
                 if down {
                     if deleteHeld {
                         edit { $0.tracks[$0.selectedTrack].clips[$0.selectedScene].notes.removeAll { $0.key == cell } }
@@ -182,7 +182,7 @@ final class Brain: ObservableObject {
             } else if down {
                 guard !deleteHeld, !muteHeld else { return }
                 // 16 Pitches: play the selected cell repitched.
-                let p = (3 - row) * 4 + (col - 4)
+                let p = (7 - row) * 4 + (col - 4)
                 let rate = pow(2.0, Float(p - 7) / 12)
                 engine.liveNote(track: song.selectedTrack, kind: .drum,
                                 key: track.selectedPad, velocity: velocity, on: true, rate: rate)
@@ -257,9 +257,9 @@ final class Brain: ObservableObject {
     }
 
     private func sessionPad(_ index: Int) {
-        // XL session grid: columns are the 8 tracks, rows are 4 scenes of the
-        // current scene bank (like Live/Push), paged with plus/minus.
-        let trackIndex = index % 8, scene = scenePage * 4 + index / 8
+        // XL 8x8 session grid: rows are tracks (same semantics as the real
+        // Move, just 8 of them), columns are the 8 scenes. No paging.
+        let trackIndex = index / 8, scene = index % 8
         guard song.tracks.indices.contains(trackIndex) else { return }
         if deleteHeld {
             edit { $0.tracks[trackIndex].clips[scene] = Clip() }
@@ -604,12 +604,6 @@ final class Brain: ObservableObject {
     }
 
     private func octave(_ direction: Int) {
-        if mode == .session {
-            scenePage = min(1, max(0, scenePage + direction))
-            showOverlay("SCENES", scenePage == 0 ? 0.25 : 0.75,
-                        scenePage == 0 ? "1 - 4" : "5 - 8")
-            return
-        }
         // Step-hold + plus/minus transposes the held notes by a semitone
         // (manual 11.2, melodic only).
         if !heldSteps.isEmpty, track.kind == .synth {
@@ -1042,14 +1036,13 @@ final class Brain: ObservableObject {
             // Level bar.
             s.frameRect(x + 2, 28, colW - 6, 7)
             s.fillRect(x + 3, 29, Int(Double(colW - 8) * tr.volume), 5)
-            // Clip dots for the current scene bank: filled = has notes.
-            for scene in 0..<4 {
-                let bank = scenePage * 4 + scene
-                let dx = x + 3 + scene * 7
-                if tr.clips.indices.contains(bank) && !tr.clips[bank].isEmpty {
-                    s.fillRect(dx, 40, 5, 5)
+            // Clip dots, one per scene: filled = has notes.
+            for scene in 0..<8 {
+                let dx = x + 2 + scene * 4
+                if tr.clips.indices.contains(scene) && !tr.clips[scene].isEmpty {
+                    s.fillRect(dx, 40, 3, 4)
                 } else {
-                    s.frameRect(dx, 40, 5, 5)
+                    s.frameRect(dx, 40, 3, 4)
                 }
             }
             if tr.muted { s.text("M", x: x + 22, y: 50) }
@@ -1110,8 +1103,8 @@ final class Brain: ObservableObject {
 
         switch mode {
         case .setOverview:
-            let saved = Set((0..<32).filter { FileManager.default.fileExists(atPath: Self.slotURL($0).path) })
-            for i in 0..<32 {
+            let saved = Set((0..<64).filter { FileManager.default.fileExists(atPath: Self.slotURL($0).path) })
+            for i in 0..<64 {
                 let note = Self.padNote(i)
                 if i == currentSlot {
                     colors[note] = SIMD3(1, 1, 1)
@@ -1122,9 +1115,8 @@ final class Brain: ObservableObject {
             }
         case .session:
             for t in 0..<min(8, song.tracks.count) {
-                for row in 0..<4 {
-                    let scene = scenePage * 4 + row
-                    let note = Self.padNote(row * 8 + t)
+                for scene in 0..<8 {
+                    let note = Self.padNote(t * 8 + scene)
                     let clip = song.tracks[t].clips[scene]
                     if !clip.isEmpty {
                         colors[note] = Self.trackColors[t]
@@ -1140,9 +1132,9 @@ final class Brain: ObservableObject {
             if track.kind == .drum {
                 let clip = track.clips[song.selectedScene]
                 let cellsWithNotes = Set(clip.notes.map(\.key))
-                for row in 0..<4 {
+                for row in 4..<8 {
                     for col in 0..<4 {
-                        let cell = (3 - row) * 4 + col
+                        let cell = (7 - row) * 4 + col
                         let note = Self.padNote(row * 8 + col)
                         if track.mutedCells.contains(cell) {
                             colors[note] = SIMD3(0.15, 0.12, 0.05)
@@ -1156,7 +1148,7 @@ final class Brain: ObservableObject {
                     }
                     for col in 4..<8 {
                         let note = Self.padNote(row * 8 + col)
-                        let p = (3 - row) * 4 + (col - 4)
+                        let p = (7 - row) * 4 + (col - 4)
                         colors[note] = p == 7 ? trackColor : trackColor * 0.2
                     }
                 }
@@ -1172,7 +1164,7 @@ final class Brain: ObservableObject {
                         soundingNotes.insert(n.key)
                     }
                 }
-                for i in 0..<32 {
+                for i in 0..<64 {
                     let note = Scales.padToNote(i, root: song.rootNote, scale: scale, octave: track.octave)
                     let isRoot = ((note - song.rootNote) % 12 + 12) % 12 == 0
                     if soundingNotes.contains(note) {
@@ -1281,7 +1273,7 @@ final class Brain: ObservableObject {
 
     static func padNote(_ index: Int) -> Int {
         let row = index / 8, col = index % 8
-        return 0x5c - row * 8 + col
+        return 0x7c - row * 8 + col
     }
 
     static func stepNote(_ index: Int) -> Int { 0x10 + index }

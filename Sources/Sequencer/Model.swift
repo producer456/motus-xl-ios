@@ -83,11 +83,11 @@ enum Scales {
     ]
     static let noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
-    /// MIDI note for a melodic pad (index 0..31, row-major from top-left).
-    /// Bottom row starts at the root; each row up is +3 scale degrees
-    /// (Push-style in-key fourths).
+    /// MIDI note for a melodic pad (index 0..63 on XL, row-major from
+    /// top-left). Bottom row starts at the root; each row up is +3 scale
+    /// degrees (Push-style in-key fourths).
     static func padToNote(_ index: Int, root: Int, scale: [Int], octave: Int) -> Int {
-        let row = 3 - index / 8      // 0 = bottom row
+        let row = 7 - index / 8      // 0 = bottom row
         let col = index % 8
         let degree = row * 3 + col
         let oct = degree / scale.count

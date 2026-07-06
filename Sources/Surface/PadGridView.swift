@@ -24,7 +24,7 @@ struct PadGridView: UIViewRepresentable {
 final class PadGridUIView: UIView {
     weak var client: Brain?
 
-    static let columns = 8, rows = 4
+    static let columns = 8, rows = 8
     private var padLayers: [CALayer] = []
     private var pillowLayers: [CAGradientLayer] = []
     private var touchPads: [UITouch: Int] = [:]

@@ -88,7 +88,7 @@ struct PanelView: View {
             // Recessed wells the pads and steps sit in.
             RecessedWell(cornerRadius: 12 * s)
                 .frame(width: 704 * s, height: 500 * s)
-                .position(x: 521 * s, y: 371 * s)
+                .position(x: 520 * s, y: 372 * s)
             RecessedWell(cornerRadius: 10 * s)
                 .frame(width: 694 * s, height: 54 * s)
                 .position(x: 520 * s, y: 651 * s)
@@ -118,7 +118,7 @@ struct PanelView: View {
                 .font(.system(size: 11 * s, weight: .bold, design: .rounded))
                 .kerning(2 * s)
                 .foregroundStyle(Color(white: 0.30))
-                .position(x: 74 * s, y: 340 * s)
+                .position(x: 72 * s, y: 428 * s)
         }
     }
 
@@ -145,16 +145,20 @@ struct PanelView: View {
 
             // ---- Left rail: wheel steppers, wheel, back / mode ----
             FunctionButton(id: "wheelUp", systemImage: "chevron.up", diameter: 30 * s)
-                .position(x: 50 * s, y: 152 * s)
+                .position(x: 50 * s, y: 150 * s)
             FunctionButton(id: "wheelDown", systemImage: "chevron.down", diameter: 30 * s)
-                .position(x: 94 * s, y: 152 * s)
+                .position(x: 94 * s, y: 150 * s)
             WheelView(diameter: 88 * s, tilt: motion.tilt)
-                .position(x: 72 * s, y: 220 * s)
+                .position(x: 72 * s, y: 222 * s)
 
             FunctionButton(id: "back", systemImage: "chevron.left", diameter: 34 * s)
-                .position(x: 44 * s, y: 292 * s)
+                .position(x: 43 * s, y: 294 * s)
             FunctionButton(id: "note", systemImage: "line.3.horizontal", diameter: 34 * s)
-                .position(x: 102 * s, y: 292 * s)
+                .position(x: 101 * s, y: 294 * s)
+
+            // Dedicated quantize — same 72-unit rail rhythm.
+            FunctionButton(id: "quantize", systemImage: "arrow.right.to.line", diameter: 34 * s)
+                .position(x: 72 * s, y: 366 * s)
 
             // ---- 8 track buttons, one per pad row ----
             ForEach(0..<8, id: \.self) { index in

@@ -640,6 +640,26 @@ final class Brain: ObservableObject {
         stepEntryUsed.removeAll()
     }
 
+    /// Apply the quantize amount to the selected clip's notes (manual 11.7).
+    private func quantizeClip() {
+        edit { song in
+            var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
+            let amount = Double(quantizePercent) / 100
+            for i in c.notes.indices {
+                let exact = Double(c.notes[i].step) + c.notes[i].off
+                let nearest = exact.rounded()
+                var q = exact + (nearest - exact) * amount
+                if q >= Double(c.steps) { q -= Double(c.steps) }
+                if q < 0 { q = 0 }
+                c.notes[i].step = Int(q)
+                let off = q - Double(Int(q))
+                c.notes[i].offset = (off < 0.02 || off > 0.98) ? nil : off
+            }
+            song.tracks[song.selectedTrack].clips[song.selectedScene] = c
+        }
+        showOverlay("QUANTIZE", Double(quantizePercent) / 100, "\(quantizePercent)% APPLIED")
+    }
+
     private func shiftStep(_ index: Int) {
         cancelBrowserPreview()   // any menu jump abandons an autoload preview
         switch index {
@@ -668,23 +688,8 @@ final class Brain: ObservableObject {
                 clip.bars *= 2
                 song.tracks[song.selectedTrack].clips[song.selectedScene] = clip
             }
-        case 15: // Quantize the clip (manual 11.7): apply the amount to notes.
-            edit { song in
-                var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
-                let amount = Double(quantizePercent) / 100
-                for i in c.notes.indices {
-                    let exact = Double(c.notes[i].step) + c.notes[i].off
-                    let nearest = exact.rounded()
-                    var q = exact + (nearest - exact) * amount
-                    if q >= Double(c.steps) { q -= Double(c.steps) }
-                    if q < 0 { q = 0 }
-                    c.notes[i].step = Int(q)
-                    let off = q - Double(Int(q))
-                    c.notes[i].offset = (off < 0.02 || off > 0.98) ? nil : off
-                }
-                song.tracks[song.selectedTrack].clips[song.selectedScene] = c
-            }
-            showOverlay("QUANTIZE", Double(quantizePercent) / 100, "\(quantizePercent)% APPLIED")
+        case 15: // Quantize the clip (manual 11.7).
+            quantizeClip()
         default:
             break
         }
@@ -751,6 +756,8 @@ final class Brain: ObservableObject {
             if down { octave(-1) }
         case "plus":
             if down { octave(1) }
+        case "quantize":
+            if down { quantizeClip() }
         case "wheelUp":
             if down { wheel(delta: 1) }
         case "wheelDown":
@@ -1763,6 +1770,7 @@ final class Brain: ObservableObject {
         ccs[Self.buttonCC["minus"]!] = track.kind == .synth ? 40 : 8
         ccs[Self.buttonCC["plus"]!] = track.kind == .synth ? 40 : 8
         ccs[Self.buttonCC["capture"]!] = captureBuffer.isEmpty ? 12 : 90
+        ccs[Self.buttonCC["quantize"]!] = track.clips[song.selectedScene].isEmpty ? 12 : 40
         ccs[Self.buttonCC["sample"]!] = 12
 
         // Shift-function legends under the step row (synthetic CCs, 200 + step).
@@ -1796,6 +1804,7 @@ final class Brain: ObservableObject {
         "loop": 0x3a, "mute": 0x58, "delete": 0x77, "copy": 0x3c,
         "undo": 0x38, "shift": 0x31, "note": 0x32, "back": 0x33,
         "left": 0x3e, "right": 0x3f, "minus": 0x36, "plus": 0x37,
+        "quantize": 0x60,
     ]
 }
 

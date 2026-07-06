@@ -95,11 +95,11 @@ struct PanelView: View {
 
             // Recessed wells the pads and steps sit in.
             RecessedWell(cornerRadius: 12 * s)
-                .frame(width: 704 * s, height: 500 * s)
+                .frame(width: 712 * s, height: 508 * s)
                 .position(x: 520 * s, y: 372 * s)
             RecessedWell(cornerRadius: 10 * s)
-                .frame(width: 694 * s, height: 54 * s)
-                .position(x: 520 * s, y: 651 * s)
+                .frame(width: 694 * s, height: 48 * s)
+                .position(x: 520 * s, y: 653 * s)
 
             // Display bezel plate.
             RoundedRectangle(cornerRadius: 8 * s)
@@ -190,7 +190,7 @@ struct PanelView: View {
             // ---- 8 track buttons, one per pad row ----
             ForEach(0..<8, id: \.self) { index in
                 TrackButton(index: index, size: CGSize(width: 18 * s, height: 52 * s))
-                    .position(x: 158 * s, y: padRowY(index) * s)
+                    .position(x: 153 * s, y: padRowY(index) * s)
             }
 
             // ---- 8x8 pad grid: original Move pad shape (wide 1.5:1) ----
@@ -271,7 +271,7 @@ struct PanelView: View {
                              column: Int, row: Int, s: CGFloat) -> some View {
         FunctionButton(id: id, systemImage: icon, label: label, diameter: 40 * s,
                        litColor: id == "record" ? .red : .white)
-            .position(x: (896 + CGFloat(column) * 48) * s,
+            .position(x: (921 + CGFloat(column) * 48) * s,
                       y: (189 + CGFloat(row) * 122) * s)
     }
 }

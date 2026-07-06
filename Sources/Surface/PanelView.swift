@@ -167,17 +167,17 @@ struct PanelView: View {
 
             // Walnut cheeks.
             WoodRail(scale: s)
-                .frame(width: 26 * s, height: 699 * s)
-                .position(x: 13 * s, y: 349.5 * s)
+                .frame(width: 20 * s, height: 699 * s)
+                .position(x: 10 * s, y: 349.5 * s)
             WoodRail(scale: s)
-                .frame(width: 26 * s, height: 699 * s)
-                .position(x: 1001 * s, y: 349.5 * s)
+                .frame(width: 20 * s, height: 699 * s)
+                .position(x: 1004 * s, y: 349.5 * s)
 
             // Engraved zone frames (the reference's section outlines).
             ForEach(0..<3, id: \.self) { zone in
                 let frames: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
-                    (114, 30, 340, 60),   // left encoder wing
-                    (663, 30, 316, 60),   // right encoder wing
+                    (100, 22, 292, 74),   // left encoder wing
+                    (645, 22, 270, 74),   // right encoder wing
                     (34, 470, 78, 140),   // plugin bay
                 ]
                 let f = frames[zone]

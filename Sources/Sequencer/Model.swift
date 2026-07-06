@@ -53,12 +53,17 @@ struct Song: Codable, Equatable {
     var selectedScene: Int = 0
     var padColorIndex: Int = 0          // Set Overview pad color
 
+    /// Move XL: 8 tracks — two drum, six synth.
     static func defaultTracks() -> [Track] {
         [
             Track(kind: .drum, name: "Drums"),
+            Track(kind: .drum, name: "Perc", soundIndex: 5),
             Track(kind: .synth, name: "Bass", soundIndex: 0),
             Track(kind: .synth, name: "Keys", soundIndex: 2),
+            Track(kind: .synth, name: "Pad", soundIndex: 3),
             Track(kind: .synth, name: "Lead", soundIndex: 4),
+            Track(kind: .synth, name: "Pluck", soundIndex: 5),
+            Track(kind: .synth, name: "Stack", soundIndex: 7),
         ]
     }
 }

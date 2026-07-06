@@ -3,7 +3,7 @@ import Foundation
 
 /// 128x64 1-bit framebuffer with a 5x7 pixel font — the Move OLED look.
 struct Screen {
-    static let width = 128, height = 64
+    static let width = 256, height = 128
     var pixels = [Bool](repeating: false, count: width * height)
 
     mutating func clear() {

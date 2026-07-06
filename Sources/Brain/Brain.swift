@@ -53,6 +53,7 @@ final class Brain: ObservableObject {
     private var metronomeOn = false
     private var mainVolume: Double = 0.85
     private var barPage = 0
+    private var scenePage = 0   // XL session: scenes 1-4 / 5-8
 
     /// Momentary parameter overlay (encoder turns), auto-expires.
     private var overlay: (title: String, value: Double, label: String)?
@@ -66,6 +67,10 @@ final class Brain: ObservableObject {
         SIMD3(1.0, 0.42, 0.30),   // coral
         SIMD3(0.30, 0.95, 0.60),  // mint
         SIMD3(0.75, 0.40, 1.0),   // violet
+        SIMD3(1.0, 0.75, 0.20),   // amber
+        SIMD3(0.20, 0.90, 0.95),  // cyan
+        SIMD3(1.0, 0.35, 0.75),   // magenta
+        SIMD3(0.65, 0.95, 0.25),  // lime
     ]
 
     /// Step indices that have a Shift function (see shiftStep) — these get an
@@ -79,7 +84,7 @@ final class Brain: ObservableObject {
         // Resume the last-used slot so a background auto-save can never
         // overwrite a saved set with a blank one.
         currentSlot = UserDefaults.standard.integer(forKey: "currentSlot")
-        if let saved = Self.loadSet(slot: currentSlot) { song = saved }
+        if let saved = Self.loadSet(slot: currentSlot) { song = Self.migrated(saved) }
         for (i, t) in song.tracks.enumerated() where t.kind == .drum {
             loadKit(track: i, index: t.soundIndex)
         }
@@ -252,7 +257,10 @@ final class Brain: ObservableObject {
     }
 
     private func sessionPad(_ index: Int) {
-        let trackIndex = index / 8, scene = index % 8
+        // XL session grid: columns are the 8 tracks, rows are 4 scenes of the
+        // current scene bank (like Live/Push), paged with plus/minus.
+        let trackIndex = index % 8, scene = scenePage * 4 + index / 8
+        guard song.tracks.indices.contains(trackIndex) else { return }
         if deleteHeld {
             edit { $0.tracks[trackIndex].clips[scene] = Clip() }
             return
@@ -287,7 +295,7 @@ final class Brain: ObservableObject {
         }
         saveCurrentSet()
         if let loaded = Self.loadSet(slot: index) {
-            song = loaded
+            song = Self.migrated(loaded)
         } else {
             song = Song()
             song.name = "Set \(index + 1)"
@@ -475,8 +483,8 @@ final class Brain: ObservableObject {
         case "mute": muteHeld = down
         case "delete": deleteHeld = down
         case "copy": copyHeld = down
-        case "track1", "track2", "track3", "track4":
-            if down { trackButton(Int(String(id.last!))! - 1) }
+        case let id where id.hasPrefix("track"):
+            if down, let n = Int(id.dropFirst(5)) { trackButton(n - 1) }
         case "play":
             if down { togglePlay(restart: shiftHeld) }
         case "record":
@@ -521,6 +529,7 @@ final class Brain: ObservableObject {
     }
 
     private func trackButton(_ index: Int) {
+        guard song.tracks.indices.contains(index) else { return }
         if muteHeld {
             edit { $0.tracks[index].muted.toggle() }
         } else {
@@ -595,6 +604,12 @@ final class Brain: ObservableObject {
     }
 
     private func octave(_ direction: Int) {
+        if mode == .session {
+            scenePage = min(1, max(0, scenePage + direction))
+            showOverlay("SCENES", scenePage == 0 ? 0.25 : 0.75,
+                        scenePage == 0 ? "1 - 4" : "5 - 8")
+            return
+        }
         // Step-hold + plus/minus transposes the held notes by a semitone
         // (manual 11.2, melodic only).
         if !heldSteps.isEmpty, track.kind == .synth {
@@ -881,6 +896,16 @@ final class Brain: ObservableObject {
         setsDir().appendingPathComponent(String(format: "slot_%02d.json", slot))
     }
 
+    /// Sets saved by the 4-track Move layout gain XL's extra tracks.
+    static func migrated(_ song: Song) -> Song {
+        var s = song
+        let defaults = Song.defaultTracks()
+        while s.tracks.count < defaults.count {
+            s.tracks.append(defaults[s.tracks.count])
+        }
+        return s
+    }
+
     static func loadSet(slot: Int) -> Song? {
         guard let data = try? Data(contentsOf: slotURL(slot)) else { return nil }
         return try? JSONDecoder().decode(Song.self, from: data)
@@ -912,65 +937,68 @@ final class Brain: ObservableObject {
         refreshLeds()
     }
 
+    // XL display: 256x128 — menus get room, the main screen earns the extra
+    // pixels with an always-on 8-track overview strip.
+
     private func refreshScreen() {
         var s = Screen()
         if let overlay {
-            s.text(overlay.title, x: 4, y: 6)
-            s.bar(4, 24, 120, 12, value: overlay.value)
-            s.textCentered(overlay.label, y: 46)
+            s.text(overlay.title, x: 8, y: 12, size: 2)
+            s.bar(8, 48, 240, 22, value: overlay.value)
+            s.textCentered(overlay.label, y: 88, size: 2)
             displayImage = s.render()
             return
         }
         switch menu {
         case .tempo:
-            s.text("TEMPO", x: 4, y: 4)
-            s.textCentered(String(format: "%.1f", song.tempo), y: 24, size: 3)
-            s.textCentered("BPM", y: 52)
+            s.text("TEMPO", x: 8, y: 8)
+            s.textCentered(String(format: "%.1f", song.tempo), y: 44, size: 5)
+            s.textCentered("BPM", y: 104)
         case .groove:
-            s.text("GROOVE", x: 4, y: 4)
-            s.bar(14, 26, 100, 14, value: song.swing)
-            s.textCentered(String(format: "%.0f%%", song.swing * 100), y: 48)
+            s.text("GROOVE", x: 8, y: 8)
+            s.bar(28, 50, 200, 26, value: song.swing)
+            s.textCentered(String(format: "%.0f%%", song.swing * 100), y: 94, size: 2)
         case .metronome:
-            s.text("METRONOME", x: 4, y: 4)
-            s.textCentered(metronomeOn ? "ON" : "OFF", y: 24, size: 3)
+            s.text("METRONOME", x: 8, y: 8)
+            s.textCentered(metronomeOn ? "ON" : "OFF", y: 48, size: 5)
         case .scale:
-            s.text("KEY & SCALE", x: 4, y: 4)
+            s.text("KEY & SCALE", x: 8, y: 8)
             let root = Scales.noteNames[song.rootNote]
             let name = Scales.all[song.scaleIndex].name
-            if scaleEditingRoot { s.fillRect(8, 22, 34, 15) }
-            s.text(root, x: 14, y: 26, invert: scaleEditingRoot)
-            if !scaleEditingRoot { s.fillRect(46, 22, 78, 15) }
-            s.text(name, x: 50, y: 26, invert: !scaleEditingRoot)
-            s.textCentered("PRESS WHEEL TO SWAP", y: 52)
+            if scaleEditingRoot { s.fillRect(14, 42, 62, 26) }
+            s.text(root, x: 24, y: 48, size: 2, invert: scaleEditingRoot)
+            if !scaleEditingRoot { s.fillRect(88, 42, 156, 26) }
+            s.text(name, x: 94, y: 48, size: 2, invert: !scaleEditingRoot)
+            s.textCentered("PRESS WHEEL TO SWAP", y: 106)
         case .browser:
-            s.text(track.kind == .drum ? "KITS" : "SOUNDS", x: 4, y: 2)
+            s.text(track.kind == .drum ? "KITS" : "SOUNDS", x: 8, y: 4)
             let names = track.kind == .drum ? DrumKits.names : SynthPreset.all.map(\.name)
             guard !names.isEmpty else { break }
             let sel = ((browserIndex % names.count) + names.count) % names.count
-            for line in -1...2 {
+            for line in -2...3 {
                 let i = ((sel + line) % names.count + names.count) % names.count
-                let y = 16 + (line + 1) * 12
-                if line == 0 { s.fillRect(0, y - 2, 128, 11) }
-                s.text(names[i], x: 4, y: y, invert: line == 0)
+                let y = 34 + (line + 2) * 18
+                if line == 0 { s.fillRect(0, y - 3, 256, 17) }
+                s.text(names[i], x: 8, y: y, size: line == 0 ? 2 : 1, invert: line == 0)
             }
         case .loopLength:
-            s.text("LOOP LENGTH", x: 4, y: 4)
-            s.textCentered("\(track.clips[song.selectedScene].bars) BAR\(track.clips[song.selectedScene].bars > 1 ? "S" : "")", y: 24, size: 2)
-            s.textCentered("WHEEL: 1/2/4/8", y: 50)
+            s.text("LOOP LENGTH", x: 8, y: 8)
+            s.textCentered("\(track.clips[song.selectedScene].bars) BAR\(track.clips[song.selectedScene].bars > 1 ? "S" : "")", y: 46, size: 4)
+            s.textCentered("WHEEL: 1/2/4/8", y: 104)
         case .workflow:
-            s.text("WORKFLOW", x: 4, y: 4)
-            if workflowEditingCountIn { s.fillRect(2, 17, 124, 12) }
-            s.text("COUNT-IN  \(countInOn ? "ON" : "OFF")", x: 6, y: 20, invert: workflowEditingCountIn)
-            if !workflowEditingCountIn { s.fillRect(2, 31, 124, 12) }
-            s.text("AUTOLOAD  \(autoloadOn ? "ON" : "OFF")", x: 6, y: 34, invert: !workflowEditingCountIn)
-            s.textCentered("TURN=SET PRESS=SWAP", y: 52)
+            s.text("WORKFLOW", x: 8, y: 8)
+            if workflowEditingCountIn { s.fillRect(4, 34, 248, 24) }
+            s.text("COUNT-IN  \(countInOn ? "ON" : "OFF")", x: 12, y: 40, size: 2, invert: workflowEditingCountIn)
+            if !workflowEditingCountIn { s.fillRect(4, 62, 248, 24) }
+            s.text("AUTOLOAD  \(autoloadOn ? "ON" : "OFF")", x: 12, y: 68, size: 2, invert: !workflowEditingCountIn)
+            s.textCentered("TURN=SET PRESS=SWAP", y: 106)
         case .setup:
-            s.text("SETUP", x: 4, y: 4)
-            s.text("MOTUS 1.0", x: 4, y: 20)
-            s.text("STANDALONE MOVE", x: 4, y: 32)
-            s.text("\(DrumKits.names.count) KITS LOADED", x: 4, y: 44)
+            s.text("SETUP", x: 8, y: 8)
+            s.text("MOTUS XL", x: 8, y: 34, size: 2)
+            s.text("8 TRACKS - 256X128 OLED", x: 8, y: 64)
+            s.text("\(DrumKits.names.count) KITS LOADED", x: 8, y: 82)
         case .message(let msg):
-            s.textCentered(msg, y: 28)
+            s.textCentered(msg, y: 56, size: 2)
         case .none:
             mainScreen(&s)
         }
@@ -980,68 +1008,97 @@ final class Brain: ObservableObject {
     private func mainScreen(_ s: inout Screen) {
         switch mode {
         case .setOverview:
-            s.text("SET OVERVIEW", x: 4, y: 4)
-            s.text(song.name, x: 4, y: 22, size: 2)
-            s.text("PAD LOAD / DEL CLEAR", x: 4, y: 54)
-        case .session:
-            s.text("SESSION", x: 4, y: 4)
-            s.text("SCENE \(song.selectedScene + 1)", x: 84, y: 4)
-            s.text(track.name, x: 4, y: 22, size: 2)
-            s.text("T\(song.selectedTrack + 1)", x: 110, y: 22)
-            transportRow(&s)
-        case .note:
-            // Header: track + mode
-            s.text("T\(song.selectedTrack + 1) \(track.name)", x: 4, y: 4)
-            if recording { s.fillRect(118, 3, 7, 7) }
-            // Sound name big
-            let soundName = track.kind == .drum
-                ? (DrumKits.names.indices.contains(track.soundIndex) ? DrumKits.names[track.soundIndex] : "KIT")
-                : SynthPreset.all[track.soundIndex % SynthPreset.all.count].name
-            var display = soundName
-            if display.count > 10 { display = String(display.prefix(10)) }
-            s.text(display, x: 4, y: 18, size: 2)
-            // Info row
-            let scaleText = track.kind == .synth
-                ? "\(Scales.noteNames[song.rootNote]) \(Scales.all[song.scaleIndex].name)"
-                : "PAD \(track.selectedPad + 1)"
-            s.text(scaleText, x: 4, y: 38)
-            transportRow(&s)
+            s.text("SET OVERVIEW", x: 8, y: 8)
+            s.text(song.name, x: 8, y: 40, size: 3)
+            s.text("PAD LOAD / DEL CLEAR", x: 8, y: 108)
+        case .session, .note:
+            header(&s)
+            trackStrip(&s)
+            selectedDetail(&s)
+            footer(&s)
         }
     }
 
-    private func transportRow(_ s: inout Screen) {
-        s.hline(0, 48, 128)
-        s.text(String(format: "%.0f BPM", song.tempo), x: 4, y: 51)
+    private func header(_ s: inout Screen) {
+        s.text(String(song.name.prefix(18)), x: 4, y: 3)
+        s.text(String(format: "%.0f BPM", song.tempo), x: 130, y: 3)
+        s.text("S\(song.selectedScene + 1)", x: 186, y: 3)
+        if mode == .session { s.text("SESSION", x: 204, y: 3) }
+        if recording {
+            s.fillRect(246, 2, 8, 8)
+        } else if engine.isPlaying {
+            for i in 0..<4 { s.fillRect(246 + i, 2 + i, 1, 8 - 2 * i) }
+        }
+        s.hline(0, 13, 256)
+    }
+
+    /// The XL's reason to exist: all 8 tracks at a glance — name, level,
+    /// clip states for the scene bank, and mute, selected track inverted.
+    private func trackStrip(_ s: inout Screen) {
+        let colW = 32
+        for (t, tr) in song.tracks.prefix(8).enumerated() {
+            let x = t * colW
+            s.text(String(tr.name.prefix(4)), x: x + 2, y: 18)
+            // Level bar.
+            s.frameRect(x + 2, 28, colW - 6, 7)
+            s.fillRect(x + 3, 29, Int(Double(colW - 8) * tr.volume), 5)
+            // Clip dots for the current scene bank: filled = has notes.
+            for scene in 0..<4 {
+                let bank = scenePage * 4 + scene
+                let dx = x + 3 + scene * 7
+                if tr.clips.indices.contains(bank) && !tr.clips[bank].isEmpty {
+                    s.fillRect(dx, 40, 5, 5)
+                } else {
+                    s.frameRect(dx, 40, 5, 5)
+                }
+            }
+            if tr.muted { s.text("M", x: x + 22, y: 50) }
+            if t == song.selectedTrack {
+                s.invertRegion(x, 16, colW - 2, 44)
+            }
+        }
+        s.hline(0, 62, 256)
+    }
+
+    private func selectedDetail(_ s: inout Screen) {
+        let soundName = track.kind == .drum
+            ? (DrumKits.names.indices.contains(track.soundIndex) ? DrumKits.names[track.soundIndex] : "KIT")
+            : SynthPreset.all[track.soundIndex % SynthPreset.all.count].name
+        s.text("T\(song.selectedTrack + 1)", x: 4, y: 68)
+        s.text(String(soundName.prefix(20)), x: 4, y: 80, size: 2)
+        let info = track.kind == .synth
+            ? "\(Scales.noteNames[song.rootNote]) \(Scales.all[song.scaleIndex].name)  OCT \(track.octave >= 0 ? "+" : "")\(track.octave)"
+            : "PAD \(track.selectedPad + 1)"
+        s.text(info, x: 4, y: 99)
+    }
+
+    private func footer(_ s: inout Screen) {
+        s.hline(0, 109, 256)
         let clip = track.clips[song.selectedScene]
         if engine.isPlaying {
             let step = Int(engine.currentStep) % clip.steps
-            s.text("\(step / 16 + 1).\(step % 16 / 4 + 1)", x: 76, y: 51)
-            for i in 0..<5 { s.fillRect(112 + i, 50 + i, 1, 9 - 2 * i) } // play triangle
+            s.text("\(step / 16 + 1).\(step % 16 / 4 + 1)", x: 228, y: 116)
         } else {
-            s.text("\(clip.bars)BAR", x: 76, y: 51)
-            s.fillRect(112, 51, 7, 7, on: true)
-            s.fillRect(113, 52, 5, 5, on: false)
+            s.text("\(clip.bars)BAR", x: 224, y: 116)
         }
-        // Loop-length lines (manual 12.1): one line per bar across the bottom;
-        // the selected bar is thick, a plus marks the empty extra bar, and a
-        // vertical tick sweeps with the play position.
+        // Loop-length lines with playhead tick (manual 12.1).
         let bars = clip.bars
         let slots = min(8, bars + (bars < 8 ? 1 : 0))
-        let slotW = 128 / slots
+        let slotW = 216 / slots
         for b in 0..<slots {
-            let x = b * slotW + 1
+            let x = b * slotW + 2
             if b >= bars {
-                s.text("+", x: x + slotW / 2 - 3, y: 58)
+                s.text("+", x: x + slotW / 2 - 3, y: 116)
             } else if b == barPage {
-                s.fillRect(x, 61, slotW - 3, 3)
+                s.fillRect(x, 120, slotW - 4, 5)
             } else {
-                s.fillRect(x, 62, slotW - 3, 1)
+                s.fillRect(x, 122, slotW - 4, 2)
             }
         }
         if engine.isPlaying {
             let position = (engine.currentStep.truncatingRemainder(dividingBy: Double(clip.steps))) / Double(clip.steps)
             let x = Int(position * Double(bars * slotW))
-            s.fillRect(min(125, x), 59, 2, 5)
+            s.fillRect(min(213, x), 117, 2, 10)
         }
     }
 
@@ -1060,13 +1117,14 @@ final class Brain: ObservableObject {
                     colors[note] = SIMD3(1, 1, 1)
                     channels[note] = 9
                 } else if saved.contains(i) {
-                    colors[note] = Self.trackColors[i % 4] * 0.8
+                    colors[note] = Self.trackColors[i % 8] * 0.8
                 }
             }
         case .session:
-            for t in 0..<4 {
-                for scene in 0..<8 {
-                    let note = Self.padNote(t * 8 + scene)
+            for t in 0..<min(8, song.tracks.count) {
+                for row in 0..<4 {
+                    let scene = scenePage * 4 + row
+                    let note = Self.padNote(row * 8 + t)
                     let clip = song.tracks[t].clips[scene]
                     if !clip.isEmpty {
                         colors[note] = Self.trackColors[t]
@@ -1179,7 +1237,7 @@ final class Brain: ObservableObject {
         }
 
         // Track buttons.
-        for t in 0..<4 {
+        for t in 0..<min(8, song.tracks.count) {
             let base = Self.trackColors[t]
             let level: Double = song.tracks[t].muted ? 0.08 : (t == song.selectedTrack ? 1.0 : 0.35)
             colors[Self.trackNotes[t]] = base * level
@@ -1228,7 +1286,7 @@ final class Brain: ObservableObject {
 
     static func stepNote(_ index: Int) -> Int { 0x10 + index }
 
-    static let trackNotes = [0x2b, 0x2a, 0x29, 0x28]
+    static let trackNotes = [0x2b, 0x2a, 0x29, 0x28, 0x27, 0x26, 0x25, 0x24]
 
     static let buttonCC: [String: Int] = [
         "play": 0x55, "record": 0x56, "capture": 0x34, "sample": 0x76,

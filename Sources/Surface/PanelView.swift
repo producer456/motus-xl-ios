@@ -1,10 +1,8 @@
 import SwiftUI
 
-/// "Imagine-11": the Move re-imagined as if Ableton had designed the
-/// enclosure at the 11" iPad Pro's footprint (aspect ~1.43:1) instead of
-/// the long 2:1 desktop wedge. Same control vocabulary, reflowed: a larger
-/// OLED, roomier encoders, near-square pads, and a bigger wheel.
-/// Laid out proportionally in a 1000x699 design space.
+/// "Move XL" — the imagined big sibling of the Move, at the 11" iPad Pro's
+/// footprint: 8 tracks, a 256x128 OLED that shows all of them at once, and
+/// the original Move's wide pad shape. Laid out in a 1000x699 design space.
 struct PanelView: View {
     @EnvironmentObject var client: Brain
 
@@ -41,48 +39,48 @@ struct PanelView: View {
                 )
                 .shadow(color: .black.opacity(0.8), radius: 18 * s, y: 6 * s)
 
-            // ---- Top zone: big display, encoders, mic, volume ----
+            // ---- Top zone: the XL's big OLED (256x128), encoders, volume ----
             DisplayView(image: client.displayImage)
-                .frame(width: 220 * s, height: 110 * s)
-                .position(x: 140 * s, y: 77 * s)
+                .frame(width: 360 * s, height: 180 * s)
+                .position(x: 210 * s, y: 112 * s)
 
             ForEach(0..<8, id: \.self) { index in
-                EncoderView(index: index, diameter: 54 * s)
-                    .position(x: encoderX(index) * s, y: 58 * s)
+                EncoderView(index: index, diameter: 50 * s)
+                    .position(x: encoderX(index) * s, y: 60 * s)
                 Circle() // touch indicator dot under each encoder
                     .fill(Color(white: 0.38))
                     .frame(width: 6 * s, height: 6 * s)
-                    .position(x: encoderX(index) * s, y: 102 * s)
+                    .position(x: encoderX(index) * s, y: 101 * s)
             }
 
             Circle() // microphone hole
                 .fill(Color.black)
                 .overlay(Circle().strokeBorder(Color(white: 0.3), lineWidth: 0.8 * s))
                 .frame(width: 8 * s, height: 8 * s)
-                .position(x: 903 * s, y: 26 * s)
+                .position(x: 936 * s, y: 28 * s)
 
-            EncoderView(index: 8, diameter: 62 * s) // volume
-                .position(x: 935 * s, y: 66 * s)
+            EncoderView(index: 8, diameter: 58 * s) // volume
+                .position(x: 938 * s, y: 90 * s)
 
-            // ---- Left rail: oversized wheel, back / mode ----
-            WheelView(diameter: 115 * s)
-                .position(x: 78 * s, y: 238 * s)
+            // ---- Left rail: wheel, back / mode ----
+            WheelView(diameter: 110 * s)
+                .position(x: 78 * s, y: 330 * s)
 
             FunctionButton(id: "back", systemImage: "chevron.left", diameter: 40 * s)
-                .position(x: 46 * s, y: 336 * s)
+                .position(x: 46 * s, y: 425 * s)
             FunctionButton(id: "note", systemImage: "line.3.horizontal", diameter: 40 * s)
-                .position(x: 110 * s, y: 336 * s)
+                .position(x: 110 * s, y: 425 * s)
 
-            // ---- Track buttons, one per pad row ----
-            ForEach(0..<4, id: \.self) { index in
-                TrackButton(index: index, size: CGSize(width: 13 * s, height: 64 * s))
-                    .position(x: 152 * s, y: padRowY(index) * s)
+            // ---- 8 track buttons, a ladder spanning the grid ----
+            ForEach(0..<8, id: \.self) { index in
+                TrackButton(index: index, size: CGSize(width: 13 * s, height: 24 * s))
+                    .position(x: 152 * s, y: (262 + CGFloat(index) * 31) * s)
             }
 
-            // ---- Pad grid: square pads (grid sized so cellW == cellH) ----
+            // ---- Pad grid: original Move pad shape (wide 1.5:1) ----
             PadGridView(colors: client.noteColors, channels: client.noteChannels)
-                .frame(width: 708 * s, height: 350 * s)
-                .position(x: 532 * s, y: 370 * s)
+                .frame(width: 708 * s, height: 243 * s)
+                .position(x: 532 * s, y: 371 * s)
 
             // ---- Right rail (2 x 4 function buttons) ----
             rightButton("capture", icon: "viewfinder", column: 0, row: 0, s: s)
@@ -95,14 +93,14 @@ struct PanelView: View {
             rightButton("shift", icon: "ellipsis", column: 1, row: 3, s: s)
 
             // ---- Bottom zone: transport, steps, nav ----
-            FunctionButton(id: "play", systemImage: "play.fill", diameter: 50 * s, litColor: .green)
-                .position(x: 46 * s, y: 634 * s)
-            FunctionButton(id: "record", systemImage: "circle.fill", diameter: 50 * s, litColor: .red)
-                .position(x: 110 * s, y: 634 * s)
+            FunctionButton(id: "play", systemImage: "play.fill", diameter: 48 * s, litColor: .green)
+                .position(x: 46 * s, y: 600 * s)
+            FunctionButton(id: "record", systemImage: "circle.fill", diameter: 48 * s, litColor: .red)
+                .position(x: 110 * s, y: 600 * s)
 
             ForEach(0..<16, id: \.self) { index in
                 StepButton(index: index, diameter: 36 * s)
-                    .position(x: stepX(index) * s, y: 622 * s)
+                    .position(x: stepX(index) * s, y: 600 * s)
             }
 
             // Shift-function legends printed on the deck below their steps.
@@ -110,22 +108,28 @@ struct PanelView: View {
                 let legend = Self.stepLegends[index]!
                 StepLegend(stepIndex: index, systemImage: legend.icon,
                            text: legend.text, size: 10 * s)
-                    .position(x: stepX(index) * s, y: 656 * s)
+                    .position(x: stepX(index) * s, y: 634 * s)
             }
 
             FunctionButton(id: "left", systemImage: "chevron.left", diameter: 30 * s)
-                .position(x: 908 * s, y: 634 * s)
+                .position(x: 908 * s, y: 600 * s)
             FunctionButton(id: "plus", systemImage: "plus", diameter: 26 * s)
-                .position(x: 946 * s, y: 616 * s)
+                .position(x: 946 * s, y: 582 * s)
             FunctionButton(id: "minus", systemImage: "minus", diameter: 26 * s)
-                .position(x: 946 * s, y: 652 * s)
+                .position(x: 946 * s, y: 618 * s)
             FunctionButton(id: "right", systemImage: "chevron.right", diameter: 30 * s)
-                .position(x: 981 * s, y: 634 * s)
+                .position(x: 981 * s, y: 600 * s)
+
+            // XL wordmark on the deck.
+            Text("MOVE XL")
+                .font(.system(size: 11 * s, weight: .bold, design: .rounded))
+                .kerning(2 * s)
+                .foregroundStyle(Color(white: 0.30))
+                .position(x: 78 * s, y: 668 * s)
         }
     }
 
     /// Legends for the steps that carry a Shift function (Brain.legendSteps).
-    /// icon = SF Symbol; text used where a glyph reads better at 9 pt.
     static let stepLegends: [Int: (icon: String?, text: String?)] = [
         0:  ("circle.grid.2x2.fill", nil),   // Set Overview
         1:  ("gearshape.fill", nil),         // Setup
@@ -140,11 +144,11 @@ struct PanelView: View {
     ]
 
     private func encoderX(_ index: Int) -> CGFloat {
-        315 + CGFloat(index) * 77
+        425 + CGFloat(index) * 68
     }
 
     private func padRowY(_ row: Int) -> CGFloat {
-        235 + CGFloat(row) * 90
+        277 + CGFloat(row) * 63
     }
 
     private func stepX(_ index: Int) -> CGFloat {

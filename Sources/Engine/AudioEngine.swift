@@ -20,18 +20,19 @@ final class AudioEngine {
     private var inCountInShared = false             // published for the UI under lock
     private var metronomeOn = false
     private var mainVolume: Float = 0.85
-    private var cutoffScale: [Float] = [1, 1, 1, 1]
-    private var resOverride: [Float] = [-1, -1, -1, -1]
-    private var attackScale: [Float] = [1, 1, 1, 1]
-    private var releaseScale: [Float] = [1, 1, 1, 1]
-    private var delaySend: [Float] = [0, 0, 0, 0]
+    static let maxTracks = 8
+    private var cutoffScale = [Float](repeating: 1, count: AudioEngine.maxTracks)
+    private var resOverride = [Float](repeating: -1, count: AudioEngine.maxTracks)
+    private var attackScale = [Float](repeating: 1, count: AudioEngine.maxTracks)
+    private var releaseScale = [Float](repeating: 1, count: AudioEngine.maxTracks)
+    private var delaySend = [Float](repeating: 0, count: AudioEngine.maxTracks)
 
     // UI-visible transport position (read by main thread each frame).
     private(set) var playheadStep: Double = 0
 
     // ---- Voices (preallocated; audio thread only) ----
     private var drumVoices = (0..<32).map { _ in DrumVoice() }
-    private var synthVoices = (0..<24).map { _ in SynthVoice() }
+    private var synthVoices = (0..<32).map { _ in SynthVoice() }
 
     // ---- Immediate events from the UI ----
     private struct LiveEvent {
@@ -111,7 +112,7 @@ final class AudioEngine {
 
     func setMacro(track: Int, cutoff: Float? = nil, res: Float? = nil,
                   attack: Float? = nil, release: Float? = nil, delay: Float? = nil) {
-        let t = max(0, min(3, track))
+        let t = max(0, min(Self.maxTracks - 1, track))
         lock.lock()
         if let cutoff { cutoffScale[t] = cutoff }
         if let res { resOverride[t] = res }
@@ -123,16 +124,16 @@ final class AudioEngine {
 
     func resetMacros() {
         lock.lock()
-        cutoffScale = [1, 1, 1, 1]
-        resOverride = [-1, -1, -1, -1]
-        attackScale = [1, 1, 1, 1]
-        releaseScale = [1, 1, 1, 1]
-        delaySend = [0, 0, 0, 0]
+        cutoffScale = [Float](repeating: 1, count: Self.maxTracks)
+        resOverride = [Float](repeating: -1, count: Self.maxTracks)
+        attackScale = [Float](repeating: 1, count: Self.maxTracks)
+        releaseScale = [Float](repeating: 1, count: Self.maxTracks)
+        delaySend = [Float](repeating: 0, count: Self.maxTracks)
         lock.unlock()
     }
 
     func macro(track: Int) -> (cutoff: Float, res: Float, attack: Float, release: Float, delay: Float) {
-        let t = max(0, min(3, track))
+        let t = max(0, min(Self.maxTracks - 1, track))
         lock.lock(); defer { lock.unlock() }
         return (cutoffScale[t], resOverride[t], attackScale[t], releaseScale[t], delaySend[t])
     }
@@ -231,8 +232,8 @@ final class AudioEngine {
         let stepInc = 1.0 / framesPerStep
         var wetL: Float = 0, wetR: Float = 0
         // Per-track gain, applied at the voice sum.
-        var trackGain: [Float] = [1, 1, 1, 1]
-        for (i, t) in song.tracks.enumerated() where i < 4 {
+        var trackGain = [Float](repeating: 1, count: Self.maxTracks)
+        for (i, t) in song.tracks.enumerated() where i < Self.maxTracks {
             trackGain[i] = Float(t.volume)
         }
 
@@ -276,7 +277,7 @@ final class AudioEngine {
             var l: Float = 0, r: Float = 0
             for voice in drumVoices where voice.active {
                 let (vl, vr) = voice.render()
-                let t = max(0, min(3, voice.track))
+                let t = max(0, min(Self.maxTracks - 1, voice.track))
                 let gain = trackGain[t]
                 l += vl * gain; r += vr * gain
                 wetL += vl * gain * delaySendAmt[t]
@@ -284,7 +285,7 @@ final class AudioEngine {
             }
             for voice in synthVoices where voice.active {
                 let v = voice.render()
-                let t = max(0, min(3, voice.track))
+                let t = max(0, min(Self.maxTracks - 1, voice.track))
                 let gain = trackGain[t]
                 l += v * gain; r += v * gain
                 wetL += v * gain * delaySendAmt[t]
@@ -346,7 +347,7 @@ final class AudioEngine {
     @discardableResult
     private func trigger(_ event: LiveEvent, song: Song, kits: [Int: LoadedKit],
                          cutoff: [Float], res: [Float], attack: [Float], release: [Float]) -> SynthVoice? {
-        let t = max(0, min(3, event.track))
+        let t = max(0, min(Self.maxTracks - 1, event.track))
         voiceCounter += 1
         if event.kind == .drum {
             guard event.on, let kit = kits[t],

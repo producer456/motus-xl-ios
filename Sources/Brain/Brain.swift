@@ -42,6 +42,11 @@ final class Brain: ObservableObject {
     /// AU parameter bank per track (7 params per bank on encoders 2-8;
     /// encoder 1 = track volume, AUSeq-style). Shift+wheel press cycles.
     private var auParamBank: [Int: Int] = [:]
+    // Loop Mode (12.1): pair-press sets start+end, double-press = one bar,
+    // brief single press selects the bar.
+    private var loopModeHeld: Set<Int> = []
+    private var loopModeEdited = false
+    private var lastLoopTap: (index: Int, at: Date)?
     /// Preset active when the AU preset browser opened (Back = rollback).
     private var auPresetOriginal: AUAudioUnitPreset?
 
@@ -344,7 +349,7 @@ final class Brain: ObservableObject {
         // rounding wrote hits into the upcoming step, which the sequencer then
         // re-fired ~50ms later: an audible flam on almost every recorded note.
         let pos = engine.currentStep
-        let step = Int(pos) % clip.steps
+        let step = clip.localStep(Int(pos))
         pendingRecordings[key] = (step, pos)
         edit { song in
             var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
@@ -435,6 +440,17 @@ final class Brain: ObservableObject {
 
     func step(_ index: Int, down: Bool) {
         if !down {
+            if menu == .loopLength, mode == .note, loopModeHeld.remove(index) != nil {
+                if loopModeHeld.isEmpty {
+                    if !loopModeEdited, index < track.clips[song.selectedScene].bars {
+                        barPage = index
+                        showOverlay("BAR \(index + 1)", Double(index + 1) / 8, "SELECTED")
+                    }
+                    loopModeEdited = false
+                }
+                refreshLeds()
+                return
+            }
             stepReleased(index)
             refreshLeds()
             return
@@ -447,21 +463,21 @@ final class Brain: ObservableObject {
         case .setOverview:
             break
         case .note:
-            // Loop Mode (manual 12.1): steps are bars; press sets the length.
+            // Loop Mode (manual 12.1): steps are bars. Press start+end
+            // together (or hold start, press end) to set the loop region;
+            // double-press = loop that single bar; brief press selects it.
             if menu == .loopLength {
                 guard index < 8 else { return }
-                let bars = track.clips[song.selectedScene].bars
-                if index + 1 != bars {
-                    edit { song in
-                        var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
-                        c.bars = index + 1
-                        let limit = c.steps
-                        c.notes.removeAll { $0.step >= limit }
-                        song.tracks[song.selectedTrack].clips[song.selectedScene] = c
-                    }
+                if let anchor = loopModeHeld.first(where: { $0 != index }) {
+                    setLoopRegion(start: min(anchor, index), endBar: max(anchor, index) + 1)
+                    loopModeEdited = true
+                } else if let tap = lastLoopTap, tap.index == index,
+                          Date().timeIntervalSince(tap.at) < 0.4 {
+                    setLoopRegion(start: index, endBar: index + 1)
+                    loopModeEdited = true
                 }
-                barPage = min(barPage, index)
-                showOverlay("LOOP LENGTH", Double(index + 1) / 8, "\(index + 1) BAR\(index > 0 ? "S" : "")")
+                loopModeHeld.insert(index)
+                lastLoopTap = (index, Date())
                 return
             }
             let clip = track.clips[song.selectedScene]
@@ -546,6 +562,26 @@ final class Brain: ObservableObject {
             purgeGridCapture()
             engine.setTransport(playing: true, fromStart: true)
         }
+    }
+
+    /// Loop Mode region change: start bar + end bar (exclusive). Growing the
+    /// end keeps/extends content; shrinking trims notes beyond it. Notes
+    /// before the start are kept but silent (manual 12.1 semantics).
+    private func setLoopRegion(start: Int, endBar: Int) {
+        edit { song in
+            var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
+            if endBar < c.bars {
+                let limit = endBar * 16
+                c.notes.removeAll { $0.step >= limit }
+            }
+            c.bars = min(8, max(1, endBar))
+            c.loopStart = start > 0 ? start : nil
+            song.tracks[song.selectedTrack].clips[song.selectedScene] = c
+        }
+        barPage = min(max(barPage, start), endBar - 1)
+        let length = endBar - start
+        showOverlay("LOOP \(start + 1)-\(endBar)", Double(endBar) / 8,
+                    "\(length) BAR\(length > 1 ? "S" : "")")
     }
 
     /// Drop pad/step entry latches (mode, track, or set changed under them).
@@ -966,9 +1002,11 @@ final class Brain: ObservableObject {
             }
         case .loopLength:
             let options = [1, 2, 4, 8]
-            let bars = track.clips[song.selectedScene].bars
+            let clip0 = track.clips[song.selectedScene]
+            let bars = clip0.bars
+            let minBars = (clip0.loopStart ?? 0) + 1
             let current = options.lastIndex(where: { $0 <= bars }) ?? 0
-            let newBars = options[min(options.count - 1, max(0, current + delta))]
+            let newBars = max(minBars, options[min(options.count - 1, max(0, current + delta))])
             guard newBars != bars else { break } // no-op detent: skip undo push
             edit { song in
                 var clip = song.tracks[song.selectedTrack].clips[song.selectedScene]
@@ -1117,7 +1155,7 @@ final class Brain: ObservableObject {
             let now = engine.currentStep
             let anyInWindow = captureBuffer.contains { note in
                 note.onGrid && song.tracks.indices.contains(note.track)
-                    && note.start >= now - Double(song.tracks[note.track].clips[song.selectedScene].steps)
+                    && note.start >= now - Double(song.tracks[note.track].clips[song.selectedScene].loopSteps)
             }
             guard anyInWindow else { showOverlay("CAPTURE", 0, "NOTHING IN WINDOW"); return }
         } else {
@@ -1134,8 +1172,8 @@ final class Brain: ObservableObject {
                 for note in captureBuffer where note.onGrid {
                     guard song.tracks.indices.contains(note.track) else { continue }
                     var clip = song.tracks[note.track].clips[song.selectedScene]
-                    guard note.start >= now - Double(clip.steps) else { continue }
-                    let step = Int(note.start.rounded()) % clip.steps
+                    guard note.start >= now - Double(clip.loopSteps) else { continue }
+                    let step = clip.localStep(Int(note.start.rounded()))
                     clip.notes.removeAll { $0.step == step && $0.key == note.key }
                     clip.notes.append(Note(step: step, key: note.key, velocity: note.velocity,
                                            lengthSteps: max(0.25, (note.length * 4).rounded() / 4)))
@@ -1310,9 +1348,13 @@ final class Brain: ObservableObject {
                        size: line == 0 ? 2 : 1, invert: line == 0)
             }
         case .loopLength:
-            s.text("LOOP LENGTH", x: 8, y: 8)
-            s.textCentered("\(track.clips[song.selectedScene].bars) BAR\(track.clips[song.selectedScene].bars > 1 ? "S" : "")", y: 46, size: 4)
-            s.textCentered("WHEEL: 1/2/4/8", y: 104)
+            let clip = track.clips[song.selectedScene]
+            let from = clip.loopStartStep / 16 + 1
+            s.text("LOOP", x: 8, y: 8)
+            s.textCentered(from == 1 && clip.bars == 1 ? "1 BAR" : "\(from)-\(clip.bars)",
+                           y: 40, size: 4)
+            s.textCentered("\(clip.bars - from + 1) BAR\(clip.bars - from > 0 ? "S" : "") LOOPED", y: 88)
+            s.textCentered("2 STEPS=REGION 2X=1BAR", y: 106)
         case .workflow:
             s.text("WORKFLOW", x: 8, y: 8)
             if workflowEditingCountIn { s.fillRect(4, 34, 248, 24) }
@@ -1426,13 +1468,14 @@ final class Brain: ObservableObject {
         s.hline(0, 109, 256)
         let clip = track.clips[song.selectedScene]
         if engine.isPlaying {
-            let step = Int(engine.currentStep) % clip.steps
+            let step = clip.localStep(Int(engine.currentStep))
             s.text("\(step / 16 + 1).\(step % 16 / 4 + 1)", x: 228, y: 116)
         } else {
             s.text("\(clip.bars)BAR", x: 224, y: 116)
         }
         // Loop-length lines with playhead tick (manual 12.1).
         let bars = clip.bars
+        let loopFrom = clip.loopStartStep / 16
         let slots = min(8, bars + (bars < 8 ? 1 : 0))
         let slotW = 216 / slots
         for b in 0..<slots {
@@ -1441,13 +1484,17 @@ final class Brain: ObservableObject {
                 s.text("+", x: x + slotW / 2 - 3, y: 116)
             } else if b == barPage {
                 s.fillRect(x, 120, slotW - 4, 5)
-            } else {
+            } else if b >= loopFrom {
                 s.fillRect(x, 122, slotW - 4, 2)
+            } else {
+                s.fillRect(x, 123, slotW - 4, 1) // in the clip, outside the loop
             }
         }
         if engine.isPlaying {
-            let position = (engine.currentStep.truncatingRemainder(dividingBy: Double(clip.steps))) / Double(clip.steps)
-            let x = Int(position * Double(bars * slotW))
+            let region = Double(clip.loopSteps)
+            let local = Double(clip.loopStartStep)
+                + engine.currentStep.truncatingRemainder(dividingBy: region)
+            let x = Int(local / Double(clip.steps) * Double(bars * slotW))
             s.fillRect(min(213, x), 117, 2, 10)
         }
     }
@@ -1538,7 +1585,7 @@ final class Brain: ObservableObject {
         if mode == .note {
             let clip = track.clips[song.selectedScene]
             let editKey = track.kind == .drum ? track.selectedPad : nil
-            let playStep = engine.isPlaying ? Int(engine.currentStep) % clip.steps : -1
+            let playStep = engine.isPlaying ? clip.localStep(Int(engine.currentStep)) : -1
             // Steps covered by a note's length glow brighter (manual 11.3).
             var tailSteps = Set<Int>()
             for n in clip.notes where n.lengthSteps > 1
@@ -1573,12 +1620,15 @@ final class Brain: ObservableObject {
         // Loop Mode overrides the step row: steps are bars (manual 12.1) —
         // white = selected bar, track color = in the loop, dim = outside.
         if menu == .loopLength && mode == .note {
-            let bars = track.clips[song.selectedScene].bars
+            let clip = track.clips[song.selectedScene]
+            let loopFrom = clip.loopStartStep / 16
             for i in 0..<16 {
                 if i == barPage {
                     colors[Self.stepNote(i)] = SIMD3(0.95, 0.95, 0.92)
-                } else if i < bars {
+                } else if i >= loopFrom && i < clip.bars {
                     colors[Self.stepNote(i)] = trackColor
+                } else if i < clip.bars {
+                    colors[Self.stepNote(i)] = trackColor * 0.15 // in clip, outside loop
                 } else {
                     colors[Self.stepNote(i)] = SIMD3(0.05, 0.05, 0.05)
                 }

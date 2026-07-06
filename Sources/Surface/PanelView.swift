@@ -69,8 +69,8 @@ struct PanelView: View {
 
             // Recessed wells the pads and steps sit in.
             RecessedWell(cornerRadius: 12 * s)
-                .frame(width: 690 * s, height: 478 * s)
-                .position(x: 519 * s, y: 379 * s)
+                .frame(width: 704 * s, height: 500 * s)
+                .position(x: 521 * s, y: 371 * s)
             RecessedWell(cornerRadius: 10 * s)
                 .frame(width: 694 * s, height: 54 * s)
                 .position(x: 520 * s, y: 651 * s)
@@ -85,14 +85,14 @@ struct PanelView: View {
                                            startPoint: .top, endPoint: .bottom),
                             lineWidth: 1.2 * s)
                 )
-                .frame(width: 216 * s, height: 114 * s)
-                .position(x: 507 * s, y: 74 * s)
+                .frame(width: 190 * s, height: 102 * s)
+                .position(x: 507 * s, y: 66 * s)
 
             Circle() // microphone hole
                 .fill(Color.black)
                 .overlay(Circle().strokeBorder(Color(white: 0.3), lineWidth: 0.8 * s))
                 .frame(width: 8 * s, height: 8 * s)
-                .position(x: 916 * s, y: 24 * s)
+                .position(x: 920 * s, y: 22 * s)
 
 
             // XL wordmark on the deck.
@@ -100,7 +100,7 @@ struct PanelView: View {
                 .font(.system(size: 11 * s, weight: .bold, design: .rounded))
                 .kerning(2 * s)
                 .foregroundStyle(Color(white: 0.30))
-                .position(x: 78 * s, y: 415 * s)
+                .position(x: 74 * s, y: 340 * s)
         }
     }
 
@@ -110,40 +110,40 @@ struct PanelView: View {
         ZStack {
             // ---- Top zone: the XL's big OLED (256x128), encoders, volume ----
             DisplayView(image: client.displayImage)
-                .frame(width: 200 * s, height: 100 * s)
-                .position(x: 507 * s, y: 74 * s)
+                .frame(width: 176 * s, height: 88 * s)
+                .position(x: 507 * s, y: 66 * s)
 
             ForEach(0..<8, id: \.self) { index in
-                EncoderView(index: index, diameter: 48 * s)
-                    .position(x: encoderX(index) * s, y: 52 * s)
+                EncoderView(index: index, diameter: 42 * s)
+                    .position(x: encoderX(index) * s, y: 46 * s)
                 Circle() // touch indicator dot under each encoder
                     .fill(Color(white: 0.38))
                     .frame(width: 6 * s, height: 6 * s)
-                    .position(x: encoderX(index) * s, y: 91 * s)
+                    .position(x: encoderX(index) * s, y: 80 * s)
             }
 
-            EncoderView(index: 8, diameter: 52 * s) // volume
-                .position(x: 962 * s, y: 60 * s)
+            EncoderView(index: 8, diameter: 48 * s) // volume
+                .position(x: 966 * s, y: 54 * s)
 
             // ---- Left rail: wheel, back / mode ----
-            WheelView(diameter: 100 * s)
-                .position(x: 78 * s, y: 250 * s)
+            WheelView(diameter: 88 * s)
+                .position(x: 72 * s, y: 220 * s)
 
-            FunctionButton(id: "back", systemImage: "chevron.left", diameter: 38 * s)
-                .position(x: 46 * s, y: 330 * s)
-            FunctionButton(id: "note", systemImage: "line.3.horizontal", diameter: 38 * s)
-                .position(x: 112 * s, y: 330 * s)
+            FunctionButton(id: "back", systemImage: "chevron.left", diameter: 34 * s)
+                .position(x: 44 * s, y: 292 * s)
+            FunctionButton(id: "note", systemImage: "line.3.horizontal", diameter: 34 * s)
+                .position(x: 102 * s, y: 292 * s)
 
             // ---- 8 track buttons, one per pad row ----
             ForEach(0..<8, id: \.self) { index in
-                TrackButton(index: index, size: CGSize(width: 20 * s, height: 36 * s))
-                    .position(x: 164 * s, y: padRowY(index) * s)
+                TrackButton(index: index, size: CGSize(width: 18 * s, height: 30 * s))
+                    .position(x: 158 * s, y: padRowY(index) * s)
             }
 
             // ---- 8x8 pad grid: original Move pad shape (wide 1.5:1) ----
             PadGridView(colors: client.noteColors, channels: client.noteChannels)
-                .frame(width: 679 * s, height: 465 * s)
-                .position(x: 517 * s, y: 383 * s)
+                .frame(width: 692 * s, height: 488 * s)
+                .position(x: 520 * s, y: 372 * s)
 
             // ---- Right rail (2 x 4 function buttons) ----
             rightButton("capture", icon: "viewfinder", column: 0, row: 0, s: s)
@@ -206,7 +206,7 @@ struct PanelView: View {
     }
 
     private func padRowY(_ row: Int) -> CGFloat {
-        175 + CGFloat(row) * 59.3
+        154 + CGFloat(row) * 62.2
     }
 
     private func stepX(_ index: Int) -> CGFloat {
@@ -215,9 +215,9 @@ struct PanelView: View {
 
     private func rightButton(_ id: String, icon: String? = nil, label: String? = nil,
                              column: Int, row: Int, s: CGFloat) -> some View {
-        FunctionButton(id: id, systemImage: icon, label: label, diameter: 44 * s,
+        FunctionButton(id: id, systemImage: icon, label: label, diameter: 40 * s,
                        litColor: id == "record" ? .red : .white)
-            .position(x: (888 + CGFloat(column) * 52) * s,
-                      y: (205 + CGFloat(row) * 118) * s)
+            .position(x: (896 + CGFloat(column) * 48) * s,
+                      y: (189 + CGFloat(row) * 122) * s)
     }
 }

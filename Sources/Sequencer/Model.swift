@@ -14,10 +14,23 @@ struct Note: Codable, Equatable {
 }
 
 struct Clip: Codable, Equatable {
-    var bars: Int = 1                   // 1/2/4/8
+    var bars: Int = 1                   // content END, in bars (1...8)
     var notes: [Note] = []
+    /// Loop START bar (manual 12.1: press start+end steps in Loop Mode).
+    /// Notes before it stay in the clip but don't play. Optional so old
+    /// sets decode (nil = 0).
+    var loopStart: Int?
     var steps: Int { bars * 16 }
     var isEmpty: Bool { notes.isEmpty }
+
+    /// First step of the playing region.
+    var loopStartStep: Int { min(max(0, loopStart ?? 0), max(0, bars - 1)) * 16 }
+    /// Length of the playing region in steps (always >= 16).
+    var loopSteps: Int { max(16, steps - loopStartStep) }
+    /// Map an absolute transport step into the playing region.
+    func localStep(_ absStep: Int) -> Int {
+        loopStartStep + ((absStep % loopSteps) + loopSteps) % loopSteps
+    }
 
     mutating func toggle(step: Int, key: Int, velocity: Int = 100) {
         if let i = notes.firstIndex(where: { $0.step == step && $0.key == key }) {

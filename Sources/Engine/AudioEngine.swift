@@ -295,10 +295,11 @@ final class AudioEngine {
             for (trackIndex, track) in song.tracks.enumerated() where !track.muted {
                 guard track.clips.indices.contains(song.selectedScene) else { continue }
                 let clip = track.clips[song.selectedScene]
-                let steps = Double(clip.steps)
+                let steps = Double(clip.loopSteps)
                 for note in clip.notes where note.off != 0 {
                     if track.kind == .drum && track.mutedCells.contains(note.key) { continue }
-                    let start = Double(note.step) + note.off
+                    let start = Double(note.step) + note.off - Double(clip.loopStartStep)
+                    guard start >= 0 && start < steps else { continue } // outside the loop
                     // Does start (mod loop) fall inside this block's window?
                     let base = (windowStart / steps).rounded(.down) * steps
                     var wrap = base
@@ -422,7 +423,7 @@ final class AudioEngine {
             guard track.clips.indices.contains(song.selectedScene) else { continue }
             let clip = track.clips[song.selectedScene]
             guard !clip.notes.isEmpty else { continue }
-            let localStep = absStep % clip.steps
+            let localStep = clip.localStep(absStep)
             for note in clip.notes where note.step == localStep && note.off == 0 {
                 if track.kind == .drum && track.mutedCells.contains(note.key) { continue }
                 let lengthFrames = Int(note.lengthSteps * Self.sampleRate * 60 / max(20, song.tempo) / 4)

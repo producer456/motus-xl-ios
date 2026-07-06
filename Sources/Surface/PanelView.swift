@@ -31,6 +31,13 @@ struct PanelView: View {
         // safe area (device insets are larger than the sim's, leaving a
         // black border otherwise).
         .ignoresSafeArea()
+        .sheet(isPresented: Binding(get: { client.auSheetVC != nil },
+                                    set: { if !$0 { client.auSheetVC = nil } })) {
+            if let vc = client.auSheetVC {
+                AUPluginView(viewController: vc)
+                    .ignoresSafeArea()
+            }
+        }
     }
 
     private func panel(scale s: CGFloat) -> some View {
@@ -208,6 +215,13 @@ struct PanelView: View {
             rightButton("undo", icon: "arrow.uturn.backward", column: 0, row: 3, s: s)
             rightButton("shift", icon: "ellipsis", column: 1, row: 3, s: s)
 
+            // ---- Plugin bay: glass icon display + native-view button ----
+            PluginGlass(icon: client.auIcons[client.song.selectedTrack], scale: s)
+                .frame(width: 58 * s, height: 58 * s)
+                .position(x: 72 * s, y: 505 * s)
+            FunctionButton(id: "auview", systemImage: "macwindow", diameter: 32 * s)
+                .position(x: 72 * s, y: 578 * s)
+
             // ---- Bottom zone: transport, steps, nav ----
             FunctionButton(id: "play", systemImage: "play.fill", diameter: 48 * s, litColor: .green)
                 .position(x: 46 * s, y: 651 * s)
@@ -274,4 +288,51 @@ struct PanelView: View {
             .position(x: (921 + CGFloat(column) * 48) * s,
                       y: (189 + CGFloat(row) * 122) * s)
     }
+}
+
+
+/// A tiny display window showing the loaded plugin's icon behind glass.
+struct PluginGlass: View {
+    var icon: UIImage?
+    var scale: CGFloat
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 9 * scale)
+                .fill(Color(white: 0.045))
+            if let icon {
+                Image(uiImage: icon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 6 * scale))
+                    .padding(7 * scale)
+                    .opacity(0.92)
+            } else {
+                Image(systemName: "waveform")
+                    .font(.system(size: 18 * scale, weight: .light))
+                    .foregroundStyle(Color(white: 0.22))
+            }
+            // Glass: diagonal gloss sweep + edge reflection + deep bezel.
+            LinearGradient(colors: [.white.opacity(0.16), .white.opacity(0.02), .clear],
+                           startPoint: .topLeading, endPoint: .center)
+                .clipShape(RoundedRectangle(cornerRadius: 9 * scale))
+            LinearGradient(colors: [.clear, .white.opacity(0.05)],
+                           startPoint: .center, endPoint: .bottomTrailing)
+                .clipShape(RoundedRectangle(cornerRadius: 9 * scale))
+            RoundedRectangle(cornerRadius: 9 * scale)
+                .strokeBorder(
+                    LinearGradient(colors: [Color.black, Color(white: 0.26)],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: 1.3 * scale)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// Hosts the AUv3's own view controller inside the sheet.
+struct AUPluginView: UIViewControllerRepresentable {
+    let viewController: UIViewController
+
+    func makeUIViewController(context: Context) -> UIViewController { viewController }
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
 }

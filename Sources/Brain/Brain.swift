@@ -15,6 +15,10 @@ final class Brain: ObservableObject {
     @Published var bareTheme = UserDefaults.standard.bool(forKey: "theme.bare")
     /// Simulated power state (manual 2: power press → wheel confirms off).
     @Published var poweredOn = true
+    /// Native AUv3 plugin view, presented as a sheet when non-nil.
+    @Published var auSheetVC: UIViewController?
+    /// Plugin icons per track, for the glass display.
+    @Published var auIcons: [Int: UIImage] = [:]
     /// Hardware-theme chassis color (palette index, persisted).
     @Published var chassisColorIndex = UserDefaults.standard.integer(forKey: "theme.color")
     private var setupEditingTheme = true
@@ -212,6 +216,14 @@ final class Brain: ObservableObject {
                                          componentFlags: 0, componentFlagsMask: 0)
     }
 
+    private func captureAUIcon(desc: AudioComponentDescription, track: Int) {
+        var wildcard = desc
+        guard let component = AVAudioUnitComponentManager.shared()
+            .components(matching: wildcard).first else { auIcons[track] = nil; return }
+        _ = wildcard
+        auIcons[track] = AudioComponentGetIcon(component.audioComponent, 88)
+    }
+
     private func selectAU(_ component: AVAudioUnitComponent, forTrack trackIndex: Int) {
         let desc = component.audioComponentDescription
         let id = "\(desc.componentType):\(desc.componentSubType):\(desc.componentManufacturer)"
@@ -219,6 +231,7 @@ final class Brain: ObservableObject {
         Task { @MainActor in
             do {
                 let name = try await engine.installAU(track: trackIndex, description: desc)
+                captureAUIcon(desc: desc, track: trackIndex)
                 auParamBank[trackIndex] = 0
                 engine.setAUVolume(track: trackIndex,
                                    volume: Float(song.tracks[trackIndex].volume))
@@ -243,6 +256,7 @@ final class Brain: ObservableObject {
                 let presetName = tr.auPresetName
                 Task { @MainActor in
                     if let name = try? await engine.installAU(track: t, description: desc) {
+                        captureAUIcon(desc: desc, track: t)
                         auParamBank[t] = 0
                         engine.setAUVolume(track: t, volume: volume)
                         if let presetName,
@@ -260,6 +274,7 @@ final class Brain: ObservableObject {
                 }
             } else {
                 engine.removeAU(track: t)
+                auIcons[t] = nil
             }
         }
     }
@@ -897,6 +912,21 @@ final class Brain: ObservableObject {
             }
         case "quantize":
             if down { quantizeClip() }
+        case "auview":
+            if down {
+                guard engine.hasAU(track: song.selectedTrack) else {
+                    showOverlay("PLUGIN VIEW", 0, "NO AU ON TRACK")
+                    break
+                }
+                let t = song.selectedTrack
+                Task { @MainActor in
+                    if let vc = await engine.auViewController(track: t) {
+                        auSheetVC = vc
+                    } else {
+                        showOverlay("PLUGIN VIEW", 0, "NONE PROVIDED")
+                    }
+                }
+            }
         case "wheelUp":
             if down { wheel(delta: 1) }
         case "wheelDown":
@@ -1194,6 +1224,7 @@ final class Brain: ObservableObject {
                          forTrack: song.selectedTrack)
             } else {
                 engine.removeAU(track: song.selectedTrack)
+                auIcons[song.selectedTrack] = nil
                 edit { song in
                     song.tracks[song.selectedTrack].soundIndex = chosen
                     song.tracks[song.selectedTrack].auIdentifier = nil
@@ -2056,6 +2087,7 @@ final class Brain: ObservableObject {
         ccs[Self.buttonCC["plus"]!] = track.kind == .synth ? 40 : 8
         ccs[Self.buttonCC["capture"]!] = captureBuffer.isEmpty ? 12 : 90
         ccs[Self.buttonCC["quantize"]!] = track.clips[song.selectedScene].isEmpty ? 12 : 40
+        ccs[Self.buttonCC["auview"]!] = engine.hasAU(track: song.selectedTrack) ? 60 : 8
         ccs[Self.buttonCC["sample"]!] = 12
 
         // Shift-function legends under the step row (synthetic CCs, 200 + step).
@@ -2089,7 +2121,7 @@ final class Brain: ObservableObject {
         "loop": 0x3a, "mute": 0x58, "delete": 0x77, "copy": 0x3c,
         "undo": 0x38, "shift": 0x31, "note": 0x32, "back": 0x33,
         "left": 0x3e, "right": 0x3f, "minus": 0x36, "plus": 0x37,
-        "quantize": 0x60,
+        "quantize": 0x60, "auview": 0x62,
     ]
 }
 

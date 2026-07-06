@@ -1,4 +1,6 @@
 import AVFoundation
+import UIKit
+import CoreAudioKit
 
 /// Standalone Move audio engine: drum sampler + poly synths + step sequencer
 /// clock, all rendered sample-accurately inside one AVAudioSourceNode.
@@ -303,6 +305,17 @@ final class AudioEngine {
     @MainActor
     func setAUVolume(track: Int, volume: Float) {
         auMixers[track]?.outputVolume = volume
+    }
+
+    /// The AU's own view controller (its native plugin UI), if it offers one.
+    @MainActor
+    func auViewController(track: Int) async -> UIViewController? {
+        guard let au = auUnits[track]?.auAudioUnit else { return nil }
+        return await withCheckedContinuation { continuation in
+            au.requestViewController { viewController in
+                continuation.resume(returning: viewController)
+            }
+        }
     }
 
     /// User presets first, then factory. Key by array index — AU preset

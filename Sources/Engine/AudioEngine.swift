@@ -14,11 +14,13 @@ final class AudioEngine {
     private var kits: [Int: LoadedKit] = [:]        // track index -> kit
     private var playing = false
     private var resetPending = false                // consumed by render under lock
+    private var countInAbort = false                // stop pressed: clear count-in state
     private var stepPos = 0.0                       // position in steps (tempo-rate independent)
     private var pendingCountIn = 0                  // set under lock; consumed with resetPending
     private var countInStepsLeft = 0                // render-owned: clicks only, no sequencing
     private var inCountInShared = false             // published for the UI under lock
     private var metronomeOn = false
+    private var recordingActive = false   // anti-flam guard applies only while recording
     private var mainVolume: Float = 0.85
     static let maxTracks = 8
     private var cutoffScale = [Float](repeating: 1, count: AudioEngine.maxTracks)
@@ -29,6 +31,8 @@ final class AudioEngine {
 
     // UI-visible transport position (read by main thread each frame).
     private(set) var playheadStep: Double = 0
+    /// Set by the Brain: re-create AUs after a media-services graph rebuild.
+    var onGraphRebuilt: (() -> Void)?
 
     // ---- Voices (preallocated; audio thread only) ----
     private var drumVoices = (0..<32).map { _ in DrumVoice() }
@@ -72,10 +76,12 @@ final class AudioEngine {
     private var recentLive = [RecentLive](repeating: RecentLive(), count: 64)
     private var recentLiveIdx = 0
 
-    private func noteRecentlyPlayedLive(track: Int, key: Int) -> Bool {
+    private func noteRecentlyPlayedLive(track: Int, key: Int, swing: Double) -> Bool {
+        guard recordingActive else { return false }
+        let window = 0.55 + swing * 0.55   // forward pull + swing delay
         for entry in recentLive where entry.track == Int32(track) && entry.key == Int32(key) {
             let age = stepPos - entry.at
-            if age >= 0 && age < 0.6 { return true }
+            if age >= 0 && age < window { return true }
         }
         return false
     }
@@ -120,6 +126,7 @@ final class AudioEngine {
         self.playing = playing
         if fromStart { resetPending = true }
         pendingCountIn = playing ? countInSteps : 0
+        if !playing { countInAbort = true }  // aborting mid-count-in must not latch
         lock.unlock()
     }
 
@@ -132,6 +139,7 @@ final class AudioEngine {
     }
 
     func setMetronome(_ on: Bool) { lock.lock(); metronomeOn = on; lock.unlock() }
+    func setRecordingActive(_ on: Bool) { lock.lock(); recordingActive = on; lock.unlock() }
     func setMainVolume(_ v: Float) { lock.lock(); mainVolume = v; lock.unlock() }
 
     func setMacro(track: Int, cutoff: Float? = nil, res: Float? = nil,
@@ -184,11 +192,20 @@ final class AudioEngine {
     // MARK: - AUv3 instrument hosting (main thread)
 
     /// Instantiate and wire an AUv3 instrument onto a track. Returns its name.
+    private var auGeneration = [Int](repeating: 0, count: AudioEngine.maxTracks)
+
     @MainActor
     func installAU(track: Int, description: AudioComponentDescription) async throws -> String {
         removeAU(track: track)
+        auGeneration[track] += 1
+        let generation = auGeneration[track]
         let avAU = try await AVAudioUnit.instantiate(with: description,
                                                      options: .loadOutOfProcess)
+        // A newer install/remove won the race while we were instantiating.
+        guard auGeneration[track] == generation else {
+            struct Superseded: Error {}
+            throw Superseded()
+        }
         let mixer = AVAudioMixerNode()
         engine.attach(avAU)
         engine.attach(mixer)
@@ -204,9 +221,19 @@ final class AudioEngine {
 
     @MainActor
     func removeAU(track: Int) {
+        auGeneration[track] += 1
         lock.lock(); auSchedule[track] = nil; lock.unlock()
-        if let au = auUnits.removeValue(forKey: track) { engine.detach(au) }
-        if let mixer = auMixers.removeValue(forKey: track) { engine.detach(mixer) }
+        // Defer the detach past any render cycle that already snapshotted the
+        // schedule block this buffer.
+        let au = auUnits.removeValue(forKey: track)
+        let mixer = auMixers.removeValue(forKey: track)
+        if au != nil || mixer != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                guard let self else { return }
+                if let au { self.engine.detach(au) }
+                if let mixer { self.engine.detach(mixer) }
+            }
+        }
     }
 
     func hasAU(track: Int) -> Bool {
@@ -267,6 +294,12 @@ final class AudioEngine {
             countInStepsLeft = pendingCountIn
             pendingCountIn = 0
             inCountInShared = countInStepsLeft > 0  // publish before render body
+            for i in recentLive.indices { recentLive[i].track = -1 } // stale step clocks
+        }
+        if countInAbort {
+            countInAbort = false
+            countInStepsLeft = 0
+            inCountInShared = false
         }
         swap(&eventQueue, &renderEvents)   // no copy, no malloc
         let kits = self.kits
@@ -317,7 +350,7 @@ final class AudioEngine {
                 let steps = Double(clip.loopSteps)
                 for note in clip.notes where note.off != 0 {
                     if track.kind == .drum && track.mutedCells.contains(note.key) { continue }
-                    if noteRecentlyPlayedLive(track: trackIndex, key: note.key) { continue }
+                    if noteRecentlyPlayedLive(track: trackIndex, key: note.key, swing: song.swing) { continue }
                     let start = Double(note.step) + note.off - Double(clip.loopStartStep)
                     guard start >= 0 && start < steps else { continue } // outside the loop
                     // Does start (mod loop) fall inside this block's window?
@@ -446,7 +479,7 @@ final class AudioEngine {
             let localStep = clip.localStep(absStep)
             for note in clip.notes where note.step == localStep && note.off == 0 {
                 if track.kind == .drum && track.mutedCells.contains(note.key) { continue }
-                if noteRecentlyPlayedLive(track: trackIndex, key: note.key) { continue }
+                if noteRecentlyPlayedLive(track: trackIndex, key: note.key, swing: song.swing) { continue }
                 let lengthFrames = Int(note.lengthSteps * Self.sampleRate * 60 / max(20, song.tempo) / 4)
                 let started = trigger(LiveEvent(track: trackIndex, kind: track.kind, key: note.key,
                                                 velocity: note.velocity, on: true),
@@ -473,10 +506,15 @@ final class AudioEngine {
             if event.on {
                 var bytes: [UInt8] = [0x90, key, UInt8(max(1, min(127, event.velocity)))]
                 block(AUEventSampleTimeImmediate + Int64(frameOffset), 0, 3, &bytes)
-                if offAfterFrames > 0,
-                   let slot = pendingOffs.firstIndex(where: { $0.track < 0 }) {
-                    pendingOffs[slot] = PendingOff(track: Int32(t), key: key,
-                                                   frames: Int32(offAfterFrames + frameOffset))
+                if offAfterFrames > 0 {
+                    if let slot = pendingOffs.firstIndex(where: { $0.track < 0 }) {
+                        pendingOffs[slot] = PendingOff(track: Int32(t), key: key,
+                                                       frames: Int32(offAfterFrames + frameOffset))
+                    } else {
+                        // Ring full: a zero-length blip beats an infinite drone.
+                        var offBytes: [UInt8] = [0x80, key, 0]
+                        block(AUEventSampleTimeImmediate + Int64(frameOffset + 64), 0, 3, &offBytes)
+                    }
                 }
             } else {
                 var bytes: [UInt8] = [0x80, key, 0]
@@ -536,9 +574,20 @@ final class AudioEngine {
             if self?.engine.isRunning == false { try? self?.engine.start() }
         }
         center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.configureSession()
-            self?.engine.prepare()
-            try? self?.engine.start()
+            guard let self else { return }
+            // The old graph is invalid after a media-services reset: rebuild.
+            self.configureSession()
+            lock.lock()
+            for i in self.auSchedule.indices { self.auSchedule[i] = nil }
+            lock.unlock()
+            if let node = self.sourceNode { self.engine.detach(node) }
+            self.sourceNode = nil
+            for (_, au) in self.auUnits { self.engine.detach(au) }
+            for (_, mixer) in self.auMixers { self.engine.detach(mixer) }
+            self.auUnits.removeAll()
+            self.auMixers.removeAll()
+            self.start()
+            self.onGraphRebuilt?()
         }
     }
 }

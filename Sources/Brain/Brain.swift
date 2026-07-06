@@ -75,6 +75,7 @@ final class Brain: ObservableObject {
     private var shiftHeld = false
     private var shiftLocked = false
     private var lastShiftTap: Date?
+    private var shiftPressedAt: Date?
     private var muteHeld = false
     private var deleteHeld = false
     private var copyHeld = false
@@ -132,6 +133,7 @@ final class Brain: ObservableObject {
 
     func start() {
         engine.start()
+        engine.onGraphRebuilt = { [weak self] in self?.reinstallAUs() }
         // Resume the last-used slot so a background auto-save can never
         // overwrite a saved set with a blank one.
         currentSlot = UserDefaults.standard.integer(forKey: "currentSlot")
@@ -219,6 +221,7 @@ final class Brain: ObservableObject {
                 let presetName = tr.auPresetName
                 Task { @MainActor in
                     if let name = try? await engine.installAU(track: t, description: desc) {
+                        auParamBank[t] = 0
                         engine.setAUVolume(track: t, volume: volume)
                         if let presetName,
                            let preset = engine.auPresets(track: t).first(where: { $0.name == presetName }) {
@@ -375,9 +378,14 @@ final class Brain: ObservableObject {
         let end = Double(start + region)
         if q >= end { q -= Double(region) }
         if q < Double(start) { q = Double(start) }
-        let step = Int(q)
-        let off = q - Double(step)
-        return (step, off < 0.02 || off > 0.98 ? nil : off)
+        var step = Int(q)
+        var off = q - Double(step)
+        if off > 0.98 { // effectively ON the next grid line — round up, wrapped
+            step += 1
+            if step >= start + region { step = start }
+            off = 0
+        }
+        return (step, off < 0.02 ? nil : off)
     }
 
     private func recordHit(key: Int, velocity: Int) {
@@ -422,6 +430,9 @@ final class Brain: ObservableObject {
         // Move, just 8 of them), columns are the 8 scenes. No paging.
         let trackIndex = index / 8, scene = index % 8
         guard song.tracks.indices.contains(trackIndex) else { return }
+        // Selection change under an open browser = stale-list commits.
+        if menu == .browser { cancelBrowserPreview(); menu = .none }
+        if menu == .auPresets { cancelAUPresetPreview(); menu = .none }
         if deleteHeld {
             edit { $0.tracks[trackIndex].clips[scene] = Clip() }
             return
@@ -475,6 +486,7 @@ final class Brain: ObservableObject {
         engine.update(song: song)
         engine.setTransport(playing: false, fromStart: true)
         recording = false
+        engine.setRecordingActive(false)
         mode = .note
         refresh()
     }
@@ -642,6 +654,10 @@ final class Brain: ObservableObject {
 
     /// Apply the quantize amount to the selected clip's notes (manual 11.7).
     private func quantizeClip() {
+        guard !track.clips[song.selectedScene].isEmpty else {
+            showOverlay("QUANTIZE", 0, "EMPTY CLIP")
+            return
+        }
         edit { song in
             var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
             let amount = Double(quantizePercent) / 100
@@ -662,6 +678,8 @@ final class Brain: ObservableObject {
 
     private func shiftStep(_ index: Int) {
         cancelBrowserPreview()   // any menu jump abandons an autoload preview
+        cancelAUPresetPreview()
+        if menu == .loopLength { clearLoopModeLatches() }
         switch index {
         case 0: mode = .setOverview; menu = .none; refresh()
         case 1: menu = .setup; refresh()
@@ -707,14 +725,21 @@ final class Brain: ObservableObject {
                     showOverlay("SHIFT", 0, "UNLOCKED")
                 } else {
                     shiftHeld = true
+                    shiftPressedAt = Date()
                     if let tap = lastShiftTap, Date().timeIntervalSince(tap) < 0.4 {
                         shiftLocked = true
                         showOverlay("SHIFT", 1, "LOCKED")
                     }
-                    lastShiftTap = Date()
                 }
             } else if !shiftLocked {
                 shiftHeld = false
+                // Only a brief tap arms the double-tap lock — a shift+combo
+                // hold followed by a quick tap must not lock.
+                if let at = shiftPressedAt, Date().timeIntervalSince(at) < 0.35 {
+                    lastShiftTap = Date()
+                } else {
+                    lastShiftTap = nil
+                }
             }
         case "mute": muteHeld = down
         case "delete": deleteHeld = down
@@ -787,6 +812,7 @@ final class Brain: ObservableObject {
         if engine.isPlaying && !restart {
             engine.setTransport(playing: false)
             recording = false
+            engine.setRecordingActive(false)
             pendingRecordings.removeAll()
         } else {
             purgeGridCapture()
@@ -798,15 +824,33 @@ final class Brain: ObservableObject {
     private func toggleRecord() {
         if engine.isPlaying {
             recording.toggle()
+            engine.setRecordingActive(recording)
             if !recording { pendingRecordings.removeAll() }
         } else {
             recording = true
+            engine.setRecordingActive(true)
             purgeGridCapture()
             // Count-in (manual 13.3): one bar of clicks before sequencing starts.
             engine.setTransport(playing: true, fromStart: true,
                                 countInSteps: countInOn ? 16 : 0)
         }
         refresh()
+    }
+
+    /// Leaving the AU preset browser without committing: restore the preset
+    /// that was active when it opened.
+    private func cancelAUPresetPreview() {
+        if menu == .auPresets, let original = auPresetOriginal {
+            engine.setAUPreset(track: song.selectedTrack, preset: original)
+        }
+        auPresetOriginal = nil
+    }
+
+    /// Loop Mode latches must not survive leaving Loop Mode.
+    private func clearLoopModeLatches() {
+        loopModeHeld.removeAll()
+        loopModeEdited = false
+        lastLoopTap = nil
     }
 
     /// Leaving the browser without committing: roll back an autoload preview.
@@ -821,10 +865,8 @@ final class Brain: ObservableObject {
 
     private func backButton() {
         copiedClip = nil
-        if menu == .auPresets, let original = auPresetOriginal {
-            engine.setAUPreset(track: song.selectedTrack, preset: original)
-            auPresetOriginal = nil
-        }
+        cancelAUPresetPreview()
+        if menu == .loopLength { clearLoopModeLatches() }
         if menu != .none {
             cancelBrowserPreview()
             menu = .none
@@ -954,6 +996,7 @@ final class Brain: ObservableObject {
         if shiftHeld, menu == .none, engine.hasAU(track: song.selectedTrack) {
             let t = song.selectedTrack
             let total = engine.auParameters(track: t).count
+            guard total > 0 else { showOverlay("PARAMS", 0, "NONE EXPOSED"); return }
             let banks = max(1, (total + 6) / 7)
             let bank = ((auParamBank[t] ?? 0) + 1) % banks
             auParamBank[t] = bank
@@ -1052,7 +1095,11 @@ final class Brain: ObservableObject {
             let presets = engine.auPresets(track: t)
             let count = presets.count + 1
             let sel = ((browserIndex % count) + count) % count
-            if sel > 0 { engine.setAUPreset(track: t, preset: presets[sel - 1]) } // live preview
+            if sel > 0 {
+                engine.setAUPreset(track: t, preset: presets[sel - 1]) // live preview
+            } else if let original = auPresetOriginal {
+                engine.setAUPreset(track: t, preset: original) // back at "< CHANGE SOUND"
+            }
             refresh()
         case .browser:
             browserIndex += delta
@@ -1110,7 +1157,7 @@ final class Brain: ObservableObject {
             adjust { $0.tempo = min(240, max(40, $0.tempo + Double(delta))) }
         case .setup:
             if setupEditingTheme {
-                bareTheme.toggle()
+                bareTheme = delta > 0
                 UserDefaults.standard.set(bareTheme, forKey: "theme.bare")
             } else {
                 let count = Self.chassisColors.count
@@ -1292,9 +1339,11 @@ final class Brain: ObservableObject {
                     guard song.tracks.indices.contains(note.track) else { continue }
                     var clip = song.tracks[note.track].clips[song.selectedScene]
                     clip.bars = max(clip.bars, bars)
-                    let exact = ((note.start - t0) * stepsPerSecond)
-                        .truncatingRemainder(dividingBy: Double(clip.steps))
-                    let (step, off) = quantized(exact, start: 0, region: clip.steps)
+                    let region = clip.loopSteps
+                    let exact = Double(clip.loopStartStep)
+                        + ((note.start - t0) * stepsPerSecond)
+                            .truncatingRemainder(dividingBy: Double(region))
+                    let (step, off) = quantized(exact, start: clip.loopStartStep, region: region)
                     let length = max(0.25, ((note.length * stepsPerSecond) * 4).rounded() / 4)
                     clip.notes.removeAll { $0.step == step && $0.key == note.key }
                     clip.notes.append(Note(step: step, key: note.key, velocity: note.velocity,
@@ -1329,10 +1378,16 @@ final class Brain: ObservableObject {
     /// derive from the song struct alone.
     private func restore(_ snapshot: Song) {
         let oldKits = song.tracks.map { $0.kind == .drum ? $0.soundIndex : -1 }
+        let oldAUs = song.tracks.map(\.auIdentifier)
         song = snapshot
         for (i, t) in song.tracks.enumerated()
         where t.kind == .drum && t.soundIndex != oldKits[i] {
             loadKit(track: i, index: t.soundIndex)
+        }
+        if song.tracks.enumerated().contains(where: { i, t in
+            i < oldAUs.count && t.auIdentifier != oldAUs[i]
+        }) {
+            reinstallAUs()
         }
         barPage = 0
         engine.update(song: song)
@@ -1380,6 +1435,7 @@ final class Brain: ObservableObject {
     /// never delivers the release event).
     func releaseModifiers() {
         clearEntryState()
+        clearLoopModeLatches()
         shiftHeld = false
         shiftLocked = false
         muteHeld = false
@@ -1549,7 +1605,7 @@ final class Brain: ObservableObject {
         if let presetName = track.auPresetName {
             s.text(String(presetName.prefix(16)), x: 40, y: 68)
         }
-        s.text(String(soundName.prefix(20)), x: 4, y: 80, size: 2)
+        s.text(String(soundName.prefix(20)), x: 4, y: 77, size: 2)
         if engine.hasAU(track: song.selectedTrack) {
             // Knob map: E1 = VOL, E2-E8 = the active parameter bank.
             let params = engine.auParameters(track: song.selectedTrack)
@@ -1672,7 +1728,7 @@ final class Brain: ObservableObject {
                 var soundingNotes = Set(heldPads.values)
                 if engine.isPlaying {
                     let clip = track.clips[song.selectedScene]
-                    let localStep = Int(engine.currentStep) % clip.steps
+                    let localStep = clip.localStep(Int(engine.currentStep))
                     for n in clip.notes where n.step == localStep {
                         soundingNotes.insert(n.key)
                     }

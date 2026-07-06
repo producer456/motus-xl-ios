@@ -3,13 +3,13 @@
 # Open the install page in Safari on any tailnet iOS device and tap Install.
 set -e
 export PATH="/opt/homebrew/bin:$PATH"
-REPO_DIR="/Users/admin/motus-ios"
+REPO_DIR="/Users/admin/motus-xl-ios"
 TEAM_ID="9TUXM4MBAV"
-SCHEME="Motus"
-BUNDLE_ID="com.legionstage.motus"
-APP_TITLE="Motus"
-ARCHIVE_PATH="/tmp/Motus-direct.xcarchive"
-EXPORT_PATH="/tmp/MotusAdHocExport"
+SCHEME="MotusXL"
+BUNDLE_ID="com.legionstage.motusxl"
+APP_TITLE="Motus XL"
+ARCHIVE_PATH="/tmp/MotusXL-direct.xcarchive"
+EXPORT_PATH="/tmp/MotusXLAdHocExport"
 API_KEY="FV5WR6A335"
 API_ISSUER="063d077f-1dbb-4904-8ead-515fe477da68"
 KEY_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${API_KEY}.p8"
@@ -23,13 +23,13 @@ BUILD_NUMBER=$(date +%s)
 echo ">> xcodegen..."; xcodegen generate >/dev/null
 echo ">> archiving Motus (build $BUILD_NUMBER)..."
 rm -rf "$ARCHIVE_PATH"
-xcodebuild -project Motus.xcodeproj -scheme "$SCHEME" -configuration Release \
+xcodebuild -project MotusXL.xcodeproj -scheme "$SCHEME" -configuration Release \
   -destination "generic/platform=iOS" -archivePath "$ARCHIVE_PATH" archive \
   -allowProvisioningUpdates -authenticationKeyID "$API_KEY" -authenticationKeyIssuerID "$API_ISSUER" \
   -authenticationKeyPath "$KEY_FILE" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
   CODE_SIGNING_ALLOWED=YES DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic -quiet
 echo ">> exporting ad-hoc IPA..."
-cat > /tmp/MotusAdHocExportOptions.plist <<PLIST
+cat > /tmp/MotusXLAdHocExportOptions.plist <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -42,7 +42,7 @@ cat > /tmp/MotusAdHocExportOptions.plist <<PLIST
 PLIST
 rm -rf "$EXPORT_PATH"
 xcodebuild -exportArchive -archivePath "$ARCHIVE_PATH" \
-  -exportOptionsPlist /tmp/MotusAdHocExportOptions.plist -exportPath "$EXPORT_PATH" \
+  -exportOptionsPlist /tmp/MotusXLAdHocExportOptions.plist -exportPath "$EXPORT_PATH" \
   -allowProvisioningUpdates -authenticationKeyID "$API_KEY" -authenticationKeyIssuerID "$API_ISSUER" \
   -authenticationKeyPath "$KEY_FILE"
 IPA_SRC=$(ls "$EXPORT_PATH"/*.ipa | head -1)

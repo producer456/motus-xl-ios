@@ -1,0 +1,409 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		03C60D8CBDFCD5E10F1A7225 /* Chrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0562D0C6403F664DC328F0F8 /* Chrome.swift */; };
+		15A2E7F236AD9CB07695CBDC /* PanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688AF6DA3BC7FB8A60FFBA87 /* PanelView.swift */; };
+		18DC3C6B11A9B61320DE50A9 /* AudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AEDAF1330A0357E561A2333 /* AudioEngine.swift */; };
+		514842289C2D8C30C7AEBF78 /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 863534603281FD45A5E69628 /* Model.swift */; };
+		7AEF96BAE034EE786B7DEA7E /* PadGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB7E928B2A932BF3F22D1A6D /* PadGridView.swift */; };
+		8091933DFB5E8F12B24F9A40 /* DrumKits in Resources */ = {isa = PBXBuildFile; fileRef = 0D7FBAA5D3C4CA8469CFF59F /* DrumKits */; };
+		8C981161AF44A72E44548E85 /* Controls.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6184528C9A23E194877EED2 /* Controls.swift */; };
+		96E7988C03414D52CBDF1D51 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E3CD41A32324F817D29087B9 /* Assets.xcassets */; };
+		B946FE5EE097B6D1CBDA7877 /* Brain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E01276A221700CB413E8D4 /* Brain.swift */; };
+		BD8D13538DFDC4113ECA30A5 /* MotusApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2659C7694CA879D972213DB0 /* MotusApp.swift */; };
+		C9933EA3FD894CF8353955B0 /* Screen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FC37DD6B3097242BA7CCF7C /* Screen.swift */; };
+		D0F16BEEE5B0DFFD3E70B9E5 /* DrumKits.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EA8CAAF184C75AD3E2BA02B /* DrumKits.swift */; };
+		E690DD9777E6BEBDFCBA2F91 /* DisplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E42468DD500B4B3D99B9C22 /* DisplayView.swift */; };
+		ED34BBB9D85098C4D214B351 /* SynthVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA53FFFA1A22CD2E8E1F7D59 /* SynthVoice.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0562D0C6403F664DC328F0F8 /* Chrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chrome.swift; sourceTree = "<group>"; };
+		0D7FBAA5D3C4CA8469CFF59F /* DrumKits */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DrumKits; path = Resources/DrumKits; sourceTree = SOURCE_ROOT; };
+		0FC37DD6B3097242BA7CCF7C /* Screen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Screen.swift; sourceTree = "<group>"; };
+		2659C7694CA879D972213DB0 /* MotusApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotusApp.swift; sourceTree = "<group>"; };
+		2EA8CAAF184C75AD3E2BA02B /* DrumKits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrumKits.swift; sourceTree = "<group>"; };
+		3E42468DD500B4B3D99B9C22 /* DisplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayView.swift; sourceTree = "<group>"; };
+		4AEDAF1330A0357E561A2333 /* AudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEngine.swift; sourceTree = "<group>"; };
+		688AF6DA3BC7FB8A60FFBA87 /* PanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelView.swift; sourceTree = "<group>"; };
+		80E01276A221700CB413E8D4 /* Brain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Brain.swift; sourceTree = "<group>"; };
+		863534603281FD45A5E69628 /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
+		A6184528C9A23E194877EED2 /* Controls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controls.swift; sourceTree = "<group>"; };
+		C91C82E956736FD0AD609FC3 /* MotusXL.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MotusXL.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CA53FFFA1A22CD2E8E1F7D59 /* SynthVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynthVoice.swift; sourceTree = "<group>"; };
+		E3CD41A32324F817D29087B9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		EB7E928B2A932BF3F22D1A6D /* PadGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PadGridView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		1E171719B466C8D317A50E07 /* Sequencer */ = {
+			isa = PBXGroup;
+			children = (
+				863534603281FD45A5E69628 /* Model.swift */,
+			);
+			path = Sequencer;
+			sourceTree = "<group>";
+		};
+		1E8840DE1C49A9F12982939D /* Engine */ = {
+			isa = PBXGroup;
+			children = (
+				4AEDAF1330A0357E561A2333 /* AudioEngine.swift */,
+				2EA8CAAF184C75AD3E2BA02B /* DrumKits.swift */,
+				CA53FFFA1A22CD2E8E1F7D59 /* SynthVoice.swift */,
+			);
+			path = Engine;
+			sourceTree = "<group>";
+		};
+		313347B3EEA3AA5EA99674EC /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				E3CD41A32324F817D29087B9 /* Assets.xcassets */,
+				0D7FBAA5D3C4CA8469CFF59F /* DrumKits */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		5606CADA6DAACFF58EA859B0 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C91C82E956736FD0AD609FC3 /* MotusXL.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		5E4C2522609342F920A3A522 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				2659C7694CA879D972213DB0 /* MotusApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		8073CE311AD1545DAFB5AF89 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				5E4C2522609342F920A3A522 /* App */,
+				9C8952390D9C07E4C69B0A13 /* Brain */,
+				1E8840DE1C49A9F12982939D /* Engine */,
+				1E171719B466C8D317A50E07 /* Sequencer */,
+				C44376467D582F91296BDE82 /* Surface */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		9C8952390D9C07E4C69B0A13 /* Brain */ = {
+			isa = PBXGroup;
+			children = (
+				80E01276A221700CB413E8D4 /* Brain.swift */,
+				0FC37DD6B3097242BA7CCF7C /* Screen.swift */,
+			);
+			path = Brain;
+			sourceTree = "<group>";
+		};
+		BB929E8ADA6162CCAB22A59D = {
+			isa = PBXGroup;
+			children = (
+				313347B3EEA3AA5EA99674EC /* Resources */,
+				8073CE311AD1545DAFB5AF89 /* Sources */,
+				5606CADA6DAACFF58EA859B0 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C44376467D582F91296BDE82 /* Surface */ = {
+			isa = PBXGroup;
+			children = (
+				0562D0C6403F664DC328F0F8 /* Chrome.swift */,
+				A6184528C9A23E194877EED2 /* Controls.swift */,
+				3E42468DD500B4B3D99B9C22 /* DisplayView.swift */,
+				EB7E928B2A932BF3F22D1A6D /* PadGridView.swift */,
+				688AF6DA3BC7FB8A60FFBA87 /* PanelView.swift */,
+			);
+			path = Surface;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		F1B6DB3532D74763CACD37EB /* MotusXL */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7AB779475F5D5B5F5B27D874 /* Build configuration list for PBXNativeTarget "MotusXL" */;
+			buildPhases = (
+				A4F96E87B58DD0DAB0284A79 /* Sources */,
+				7C83A6410851F714FE935907 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MotusXL;
+			packageProductDependencies = (
+			);
+			productName = MotusXL;
+			productReference = C91C82E956736FD0AD609FC3 /* MotusXL.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A978C2B42956867CDD31BBFB /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					F1B6DB3532D74763CACD37EB = {
+						DevelopmentTeam = 9TUXM4MBAV;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 0B1876E2129BCE313252BB92 /* Build configuration list for PBXProject "MotusXL" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = BB929E8ADA6162CCAB22A59D;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5606CADA6DAACFF58EA859B0 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F1B6DB3532D74763CACD37EB /* MotusXL */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		7C83A6410851F714FE935907 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				96E7988C03414D52CBDF1D51 /* Assets.xcassets in Resources */,
+				8091933DFB5E8F12B24F9A40 /* DrumKits in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A4F96E87B58DD0DAB0284A79 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				18DC3C6B11A9B61320DE50A9 /* AudioEngine.swift in Sources */,
+				B946FE5EE097B6D1CBDA7877 /* Brain.swift in Sources */,
+				03C60D8CBDFCD5E10F1A7225 /* Chrome.swift in Sources */,
+				8C981161AF44A72E44548E85 /* Controls.swift in Sources */,
+				E690DD9777E6BEBDFCBA2F91 /* DisplayView.swift in Sources */,
+				D0F16BEEE5B0DFFD3E70B9E5 /* DrumKits.swift in Sources */,
+				514842289C2D8C30C7AEBF78 /* Model.swift in Sources */,
+				BD8D13538DFDC4113ECA30A5 /* MotusApp.swift in Sources */,
+				7AEF96BAE034EE786B7DEA7E /* PadGridView.swift in Sources */,
+				15A2E7F236AD9CB07695CBDC /* PanelView.swift in Sources */,
+				C9933EA3FD894CF8353955B0 /* Screen.swift in Sources */,
+				ED34BBB9D85098C4D214B351 /* SynthVoice.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		63A992C6E909D1E4B823B0B5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9TUXM4MBAV;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = Resources/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.legionstage.motusxl;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		6C6F4390E9A004D390374019 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		BD21D399E5CDBB8A2B8F2725 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9TUXM4MBAV;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = Resources/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.legionstage.motusxl;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		F2D376C59134560F46489DAC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0B1876E2129BCE313252BB92 /* Build configuration list for PBXProject "MotusXL" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6C6F4390E9A004D390374019 /* Debug */,
+				F2D376C59134560F46489DAC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7AB779475F5D5B5F5B27D874 /* Build configuration list for PBXNativeTarget "MotusXL" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BD21D399E5CDBB8A2B8F2725 /* Debug */,
+				63A992C6E909D1E4B823B0B5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A978C2B42956867CDD31BBFB /* Project object */;
+}

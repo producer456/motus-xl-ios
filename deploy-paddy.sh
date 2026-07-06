@@ -4,12 +4,12 @@
 set -euo pipefail
 export PATH="/opt/homebrew/bin:$PATH"
 
-REPO_DIR="/Users/admin/motus-ios"
+REPO_DIR="/Users/admin/motus-xl-ios"
 TEAM_ID="9TUXM4MBAV"
-SCHEME="Motus"
-PROJECT="$REPO_DIR/Motus.xcodeproj"
-ARCHIVE_PATH="/tmp/Motus-Paddy.xcarchive"
-EXPORT_PATH="/tmp/MotusPaddyExport"
+SCHEME="MotusXL"
+PROJECT="$REPO_DIR/MotusXL.xcodeproj"
+ARCHIVE_PATH="/tmp/MotusXL-Paddy.xcarchive"
+EXPORT_PATH="/tmp/MotusXLPaddyExport"
 PADDY_ID="FB14BC29-FBBC-591F-A000-F988ECC42ABB"
 
 API_KEY_ID="FV5WR6A335"
@@ -28,7 +28,7 @@ xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Release \
     CODE_SIGNING_ALLOWED=YES DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic -quiet
 
 echo ">> Exporting (method=development)..."
-cat > /tmp/MotusPaddyExportOptions.plist << 'PLIST'
+cat > /tmp/MotusXLPaddyExportOptions.plist << 'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -42,7 +42,7 @@ PLIST
 
 rm -rf "$EXPORT_PATH"
 xcodebuild -exportArchive -archivePath "$ARCHIVE_PATH" \
-    -exportOptionsPlist /tmp/MotusPaddyExportOptions.plist -exportPath "$EXPORT_PATH" \
+    -exportOptionsPlist /tmp/MotusXLPaddyExportOptions.plist -exportPath "$EXPORT_PATH" \
     -allowProvisioningUpdates -authenticationKeyPath "$API_KEY_PATH" \
     -authenticationKeyID "$API_KEY_ID" -authenticationKeyIssuerID "$API_ISSUER"
 

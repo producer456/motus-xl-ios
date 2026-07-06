@@ -54,6 +54,7 @@ final class Brain: ObservableObject {
     enum Menu: Equatable {
         case none, tempo, groove, metronome, scale, browser, setup, loopLength, workflow
         case auPresets, powerConfirm, repeatMenu
+        case setColor(Int)   // Shift+pad in Set Overview
         case message(String)
     }
     private var menu = Menu.none
@@ -88,7 +89,17 @@ final class Brain: ObservableObject {
     private var muteHeld = false
     private var deleteHeld = false
     private var copyHeld = false
+    private var copyUsed = false            // a copy+target combo fired
     private var copiedClip: Clip?
+    /// Steps clipboard (manual 11.8): notes rebased to 0, plus the span so
+    /// ranges paste in sequence. Bars copy as a 16-step range.
+    private var copiedSteps: (notes: [Note], span: Int)?
+    private var copyAnchor: Int?            // range copy: first step pressed
+    private var copiedSetSlot: Int?         // Set Overview clipboard
+    private var pendingSetPaste: (src: Int, dst: Int)?
+    private var pendingSetDelete: Int?
+    private var selectedOverviewSlot = 0    // manual 6.1: select, then load
+    private var heldSetPads: Set<Int> = []  // pad-hold + Volume = set volume
 
     // Manual 9.5 sequencing state: pad-then-step / step-then-pad note entry.
     private var heldPads: [Int: Int] = [:]     // melodic pad index -> MIDI note
@@ -340,7 +351,8 @@ final class Brain: ObservableObject {
         guard poweredOn else { return }
         let vel = fullVelocity ? 127 : velocity
         switch mode {
-        case .setOverview: if down { setOverviewPad(index) }
+        case .setOverview:
+            if down { setOverviewPad(index) } else { heldSetPads.remove(index) }
         case .session: if down { sessionPad(index) }
         case .note: notePad(index, down: down, velocity: vel)
         }
@@ -373,6 +385,11 @@ final class Brain: ObservableObject {
                         return
                     }
                     adjust { $0.tracks[$0.selectedTrack].selectedPad = cell }
+                    if barEditActive {
+                        loopModeEdited = true
+                        insertNotes([cell], atSteps: Array(heldAbsSteps()).sorted(), velocity: velocity)
+                        return
+                    }
                     heldDrumCells.insert(cell)
                     if repeatActive {
                         startRepeatChain()   // the chain fires it at the rate
@@ -428,6 +445,12 @@ final class Brain: ObservableObject {
                 return
             }
             guard !muteHeld else { return }
+            if barEditActive {
+                // Manual 11.9: held bar-step + pad fills the bar with the note.
+                loopModeEdited = true
+                insertNotes([note], atSteps: Array(heldAbsSteps()).sorted(), velocity: velocity)
+                return
+            }
             if repeatActive {
                 heldPads[index] = note
                 startRepeatChain()   // staccato hits at the rate, no sustain
@@ -535,6 +558,7 @@ final class Brain: ObservableObject {
             return
         }
         if copyHeld {
+            copyUsed = true
             copiedClip = song.tracks[trackIndex].clips[scene]
             showOverlay("COPY", 1, "CLIP COPIED")
             return
@@ -564,17 +588,75 @@ final class Brain: ObservableObject {
     }
 
     private func setOverviewPad(_ index: Int) {
+        heldSetPads.insert(index)
+        let exists = FileManager.default.fileExists(atPath: Self.slotURL(index).path)
+            || index == currentSlot
         if deleteHeld {
-            try? FileManager.default.removeItem(at: Self.slotURL(index))
-            if index == currentSlot {
-                // Otherwise the in-memory song just auto-saves it right back.
-                song = Song()
-                song.name = "Set \(index + 1)"
-                engine.update(song: song)
+            // Manual 6.1.5: deletion needs a second press to confirm.
+            if pendingSetDelete == index {
+                pendingSetDelete = nil
+                try? FileManager.default.removeItem(at: Self.slotURL(index))
+                UserDefaults.standard.removeObject(forKey: "setColor.\(index)")
+                if index == currentSlot {
+                    // Otherwise the in-memory song auto-saves it right back.
+                    song = Song()
+                    song.name = "Set \(index + 1)"
+                    engine.update(song: song)
+                }
+                showOverlay("DELETE", 0, "SET \(index + 1) DELETED")
+            } else if exists {
+                pendingSetDelete = index
+                showOverlay("DELETE", 0.5, "PRESS AGAIN TO DELETE \(index + 1)")
             }
             refresh()
             return
         }
+        pendingSetDelete = nil
+        if copyHeld {
+            guard exists else { return }
+            copyUsed = true
+            saveCurrentSet()
+            copiedSetSlot = index
+            pendingSetPaste = nil
+            showOverlay("COPY", 1, "SET \(index + 1) COPIED")
+            return
+        }
+        if let src = copiedSetSlot, src != index {
+            // Manual 6.1.4: pasting over an existing Set needs confirmation.
+            let occupied = FileManager.default.fileExists(atPath: Self.slotURL(index).path)
+            if occupied, pendingSetPaste?.dst != index {
+                pendingSetPaste = (src, index)
+                showOverlay("PASTE", 0.5, "PRESS AGAIN TO OVERWRITE \(index + 1)")
+                return
+            }
+            pendingSetPaste = nil
+            try? FileManager.default.removeItem(at: Self.slotURL(index))
+            try? FileManager.default.copyItem(at: Self.slotURL(src), to: Self.slotURL(index))
+            let color = UserDefaults.standard.object(forKey: "setColor.\(src)") as? Int ?? src % 8
+            UserDefaults.standard.set(color, forKey: "setColor.\(index)")
+            if index == currentSlot, let loaded = Self.loadSet(slot: index) {
+                song = Self.migrated(loaded)
+                engine.update(song: song)
+            }
+            copiedSetSlot = nil
+            showOverlay("PASTE", 1, "SET PASTED TO \(index + 1)")
+            refresh()
+            return
+        }
+        if shiftHeld {
+            guard exists else { return }
+            menu = .setColor(index)
+            refresh()
+            return
+        }
+        // Manual 6.1: a pad press selects; Play previews; a track button,
+        // Back, or the Note toggle opens the Set.
+        selectedOverviewSlot = index
+        refresh()
+    }
+
+    /// Load a Set slot into the engine (stays in whatever mode we're in).
+    private func loadSlot(_ index: Int) {
         saveCurrentSet()
         if let loaded = Self.loadSet(slot: index) {
             song = Self.migrated(loaded)
@@ -587,6 +669,7 @@ final class Brain: ObservableObject {
         undoStack.removeAll(); redoStack.removeAll()
         barPage = 0
         copiedClip = nil
+        copiedSteps = nil
         clearEntryState()
         engine.resetMacros()
         for (i, t) in song.tracks.enumerated() where t.kind == .drum {
@@ -598,7 +681,6 @@ final class Brain: ObservableObject {
         engine.setTransport(playing: false, fromStart: true)
         recording = false
         engine.setRecordingActive(false)
-        mode = .note
         refresh()
     }
 
@@ -640,6 +722,26 @@ final class Brain: ObservableObject {
             // together (or hold start, press end) to set the loop region;
             // double-press = loop that single bar; brief press selects it.
             if menu == .loopLength {
+                if deleteHeld {
+                    // Manual 12.4: Delete + bar step clears the bar's notes.
+                    loopModeEdited = true
+                    edit { song in
+                        song.tracks[song.selectedTrack].clips[song.selectedScene]
+                            .notes.removeAll { $0.step / 16 == index }
+                    }
+                    showOverlay("BAR \(index + 1)", 0, "NOTES DELETED")
+                    return
+                }
+                if copyHeld {
+                    copyUsed = true
+                    copySteps(from: index * 16, to: index * 16 + 15)
+                    showOverlay("BAR \(index + 1)", 1, "COPIED")
+                    return
+                }
+                if copiedSteps != nil {
+                    pasteSteps(at: index * 16)
+                    return
+                }
                 if let anchor = loopModeHeld.first(where: { $0 != index }) {
                     setLoopRegion(start: min(anchor, index), endBar: max(anchor, index) + 1)
                     loopModeEdited = true
@@ -654,6 +756,22 @@ final class Brain: ObservableObject {
             }
             let clip = track.clips[song.selectedScene]
             let step = barPage * 16 + index
+            // Copy/paste (manual 11.8): held Copy arms; a second press while
+            // holding sets a range; with a loaded clipboard, steps paste.
+            if copyHeld {
+                copyUsed = true
+                if let anchor = copyAnchor {
+                    copySteps(from: min(anchor, step), to: max(anchor, step))
+                } else {
+                    copyAnchor = step
+                    copySteps(from: step, to: step)
+                }
+                return
+            }
+            if copiedSteps != nil {
+                pasteSteps(at: step)
+                return
+            }
             // Adding notes to the empty extra bar extends the loop (12.1).
             let extendsBar = step >= clip.steps && barPage >= clip.bars && clip.bars < 16
             guard step < clip.steps || extendsBar else { return }
@@ -736,6 +854,57 @@ final class Brain: ObservableObject {
         }
     }
 
+    /// Copy notes in [from...to] (abs steps), rebased to 0 (manual 11.8).
+    /// Drum tracks scope to the selected cell, like the step LEDs.
+    private func copySteps(from: Int, to: Int) {
+        let drumKey = track.kind == .drum ? track.selectedPad : nil
+        let notes = track.clips[song.selectedScene].notes
+            .filter { $0.step >= from && $0.step <= to && (drumKey == nil || $0.key == drumKey) }
+            .map { n -> Note in var m = n; m.step -= from; return m }
+        copiedSteps = (notes, to - from + 1)
+        showOverlay("COPY", 1, notes.isEmpty ? "EMPTY RANGE" : "NOTES COPIED")
+    }
+
+    /// Paste the clipboard starting at an absolute step, extending the loop
+    /// (whole bars, max 16) when the range runs past the end.
+    private func pasteSteps(at dest: Int) {
+        guard let clipboard = copiedSteps else { return }
+        let lastStep = dest + clipboard.span - 1
+        let neededBars = min(16, lastStep / 16 + 1)
+        guard dest < 16 * 16 else { return }
+        edit { song in
+            var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
+            if neededBars > c.bars { c.bars = neededBars }
+            for n in clipboard.notes {
+                let step = dest + n.step
+                guard step < c.steps else { continue }
+                c.notes.removeAll { $0.step == step && $0.key == n.key && $0.pitch == n.pitch }
+                var m = n; m.step = step
+                c.notes.append(m)
+            }
+            song.tracks[song.selectedTrack].clips[song.selectedScene] = c
+        }
+        showOverlay("PASTE", 1, "NOTES PASTED")
+    }
+
+    /// Bare Copy press (manual 12.3): duplicate the clip into the next empty
+    /// slot and select it.
+    private func duplicateClip() {
+        let clip = track.clips[song.selectedScene]
+        guard !clip.isEmpty else { return }
+        guard let empty = (0..<8).first(where: { track.clips[$0].isEmpty }) else {
+            showOverlay("COPY", 1, "ALL SLOTS USED")
+            return
+        }
+        edit { song in
+            song.tracks[song.selectedTrack].clips[empty] = clip
+            song.selectedScene = empty
+        }
+        engine.setAllPlayingScenes(empty)
+        barPage = 0
+        showOverlay("COPY", 1, "CLIP DUPLICATED TO S\(empty + 1)")
+    }
+
     /// Loop Mode region change: start bar + end bar (exclusive). Growing the
     /// end keeps/extends content; shrinking trims notes beyond it. Notes
     /// before the start are kept but silent (manual 12.1 semantics).
@@ -801,6 +970,9 @@ final class Brain: ObservableObject {
         switch index {
         case 0:
             if mode != .setOverview { modeBeforeOverview = mode }
+            selectedOverviewSlot = currentSlot
+            heldSetPads.removeAll()
+            pendingSetDelete = nil; pendingSetPaste = nil
             mode = .setOverview; menu = .none; refresh()
         case 1: menu = .setup; refresh()
         case 2: menu = .workflow; refresh()
@@ -906,7 +1078,24 @@ final class Brain: ObservableObject {
                             track.muted ? 1 : 0, track.muted ? "MUTED" : "UNMUTED")
             }
         case "delete": deleteHeld = down
-        case "copy": copyHeld = down
+        case "copy":
+            copyHeld = down
+            if down {
+                copyUsed = false
+                copyAnchor = nil
+            } else {
+                copyAnchor = nil
+                if !copyUsed {
+                    if copiedSteps != nil || copiedClip != nil || copiedSetSlot != nil {
+                        // Manual 11.8: pressing Copy again clears the clipboard.
+                        copiedSteps = nil; copiedClip = nil; copiedSetSlot = nil
+                        pendingSetPaste = nil
+                        showOverlay("COPY", 0, "CLIPBOARD CLEARED")
+                    } else if mode == .note {
+                        duplicateClip()   // manual 12.3: bare Copy press
+                    }
+                }
+            }
         case let id where id.hasPrefix("track"):
             if let n = Int(id.dropFirst(5)) {
                 if down {
@@ -917,13 +1106,24 @@ final class Brain: ObservableObject {
                 }
             }
         case "play":
-            if down { togglePlay(restart: shiftHeld) }
+            if down {
+                if mode == .setOverview {
+                    // Manual 6.1: Play previews the selected Set.
+                    if selectedOverviewSlot != currentSlot { loadSlot(selectedOverviewSlot) }
+                    togglePlay(restart: false)
+                } else {
+                    togglePlay(restart: shiftHeld)
+                }
+            }
         case "record":
             if down { toggleRecord() }
         case "undo":
             if down { shiftHeld ? redo() : undo() }
         case "note":
             if down {
+                if mode == .setOverview, selectedOverviewSlot != currentSlot {
+                    loadSlot(selectedOverviewSlot)
+                }
                 mode = mode == .note ? .session : .note
                 cancelBrowserPreview()
                 menu = .none
@@ -947,7 +1147,7 @@ final class Brain: ObservableObject {
             // With steps held, short press acts on release; a 0.55 s hold
             // fires the long variant (octave / full-step nudge, manual 11.2/11.4).
             if down {
-                if !heldSteps.isEmpty {
+                if !heldSteps.isEmpty || barEditActive {
                     pendingNav = (id, Date())
                 } else {
                     switch id {
@@ -1010,7 +1210,10 @@ final class Brain: ObservableObject {
                 pendingRecordings.removeAll()
                 recordExtendTarget = nil
             }
-            adjust { $0.selectedTrack = index }
+            if mode == .setOverview, selectedOverviewSlot != currentSlot {
+                loadSlot(selectedOverviewSlot)
+            }
+            adjust { $0.selectedTrack = min(index, song.tracks.count - 1) }
             barPage = 0
             if mode == .setOverview { mode = .note }
         }
@@ -1078,13 +1281,18 @@ final class Brain: ObservableObject {
 
     private func backButton() {
         copiedClip = nil
+        copiedSteps = nil
+        copiedSetSlot = nil
+        pendingSetPaste = nil
+        pendingSetDelete = nil
         cancelAUPresetPreview()
         if menu == .loopLength { clearLoopModeLatches() }
         if menu != .none {
             cancelBrowserPreview()
             menu = .none
         } else if mode == .setOverview {
-            mode = .note
+            if selectedOverviewSlot != currentSlot { loadSlot(selectedOverviewSlot) }
+            mode = modeBeforeOverview
         }
         refresh()
     }
@@ -1092,7 +1300,8 @@ final class Brain: ObservableObject {
     private func leftRight(_ direction: Int) {
         guard mode == .note else { return }
         // Step-hold + arrows = nudge notes by 10% of a step (Shift: 1%).
-        if !heldSteps.isEmpty {
+        if !heldSteps.isEmpty || barEditActive {
+            if barEditActive { loopModeEdited = true }
             nudgeHeldSteps(by: Double(direction) * (shiftHeld ? 0.01 : 0.1))
             return
         }
@@ -1107,7 +1316,7 @@ final class Brain: ObservableObject {
     }
 
     private func transposeHeldSteps(by semitones: Int) {
-        guard !heldSteps.isEmpty, track.kind == .synth else { return }
+        guard !heldSteps.isEmpty || barEditActive, track.kind == .synth else { return }
         let steps = heldAbsSteps()
         stepEntryUsed.formUnion(heldSteps)
         edit { song in
@@ -1123,7 +1332,8 @@ final class Brain: ObservableObject {
     private func octave(_ direction: Int) {
         // Step-hold + plus/minus transposes the held notes by a semitone
         // (manual 11.2); long press = an octave (handled via pendingNav).
-        if !heldSteps.isEmpty, track.kind == .synth {
+        if !heldSteps.isEmpty || barEditActive, track.kind == .synth {
+            if barEditActive { loopModeEdited = true }
             transposeHeldSteps(by: direction)
             return
         }
@@ -1198,10 +1408,19 @@ final class Brain: ObservableObject {
 
     // MARK: - Step-hold editing (manual ch 11)
 
-    /// Absolute step numbers for the currently held step buttons.
+    /// Absolute step numbers for the currently held step buttons. In Loop
+    /// Mode, held steps are bars — edits cover every step in them (11.5).
     private func heldAbsSteps() -> Set<Int> {
-        Set(heldSteps.map { barPage * 16 + $0 })
+        if menu == .loopLength, !loopModeHeld.isEmpty {
+            var all = Set<Int>()
+            for bar in loopModeHeld { for i in 0..<16 { all.insert(bar * 16 + i) } }
+            return all
+        }
+        return Set(heldSteps.map { barPage * 16 + $0 })
     }
+
+    /// Held bar-steps in Loop Mode enable the bulk-edit gestures.
+    private var barEditActive: Bool { menu == .loopLength && !loopModeHeld.isEmpty }
 
     /// Notes at the held steps — drum edits are scoped to the selected cell,
     /// melodic edits cover all notes at the step (matches the LEDs).
@@ -1405,8 +1624,10 @@ final class Brain: ObservableObject {
 
     func wheel(delta: Int) {
         guard poweredOn else { return }
-        // Step-hold + wheel = note length (manual 11.3), regardless of menu.
-        if !heldSteps.isEmpty && mode == .note {
+        // Step-hold + wheel = note length (manual 11.3); in Loop Mode a held
+        // bar-step scopes the edit to the whole bar (11.5).
+        if (!heldSteps.isEmpty || barEditActive) && mode == .note {
+            if barEditActive { loopModeEdited = true }
             adjustHeldLength(by: delta)
             return
         }
@@ -1502,6 +1723,13 @@ final class Brain: ObservableObject {
             refresh()
         case .metronome, .message:
             break
+        case .setColor(let slot):
+            let count = Self.trackColors.count
+            let current = UserDefaults.standard.object(forKey: "setColor.\(slot)") as? Int ?? slot % 8
+            let next = ((current + delta) % count + count) % count
+            UserDefaults.standard.set(next, forKey: "setColor.\(slot)")
+            if slot == currentSlot { adjust { $0.padColorIndex = next } }
+            refresh()
         }
     }
 
@@ -1576,9 +1804,33 @@ final class Brain: ObservableObject {
 
     func volume(delta: Int) {
         guard poweredOn else { return }
-        // Step-hold + volume encoder = note velocity (manual 11.1).
-        if !heldSteps.isEmpty && mode == .note {
+        // Step-hold + volume encoder = note velocity (manual 11.1/11.5).
+        if (!heldSteps.isEmpty || barEditActive) && mode == .note {
+            if barEditActive { loopModeEdited = true }
             adjustHeldVelocity(by: delta)
+            return
+        }
+        // Set-pad-hold + Volume = Set volume (manual 6.1: scales all track
+        // volumes together, for balancing Sets).
+        if mode == .setOverview, let slot = heldSetPads.first {
+            let factor = 1 + Double(delta) * 0.03
+            if slot == currentSlot {
+                adjust { song in
+                    for i in song.tracks.indices {
+                        song.tracks[i].volume = min(1, max(0.02, song.tracks[i].volume * factor))
+                    }
+                }
+                for (i, t) in song.tracks.enumerated() { engine.setAUVolume(track: i, volume: Float(t.volume)) }
+                showOverlay("SET VOLUME", song.tracks[0].volume, "SET \(slot + 1)")
+            } else if var other = Self.loadSet(slot: slot) {
+                for i in other.tracks.indices {
+                    other.tracks[i].volume = min(1, max(0.02, other.tracks[i].volume * factor))
+                }
+                if let data = try? JSONEncoder().encode(other) {
+                    try? data.write(to: Self.slotURL(slot))
+                }
+                showOverlay("SET VOLUME", other.tracks[0].volume, "SET \(slot + 1)")
+            }
             return
         }
         // Track-hold + volume = that track's volume (manual 16.2).
@@ -1808,6 +2060,7 @@ final class Brain: ObservableObject {
         if let data = try? JSONEncoder().encode(song) {
             try? data.write(to: Self.slotURL(currentSlot))
         }
+        UserDefaults.standard.set(song.padColorIndex, forKey: "setColor.\(currentSlot)")
     }
 
     // MARK: - Rendering
@@ -1936,6 +2189,11 @@ final class Brain: ObservableObject {
             s.textCentered("POWER OFF?", y: 30, size: 2)
             s.textCentered("PRESS WHEEL TO CONFIRM", y: 66)
             s.textCentered("BACK TO CANCEL", y: 82)
+        case .setColor(let slot):
+            s.text("SET \(slot + 1) COLOR", x: 8, y: 8)
+            let idx = UserDefaults.standard.object(forKey: "setColor.\(slot)") as? Int ?? slot % 8
+            s.textCentered("COLOR \(idx + 1) OF \(Self.trackColors.count)", y: 52, size: 2)
+            s.textCentered("TURN WHEEL - BACK TO EXIT", y: 100)
         case .message(let msg):
             s.textCentered(msg, y: 56, size: 2)
         case .none:
@@ -1948,8 +2206,13 @@ final class Brain: ObservableObject {
         switch mode {
         case .setOverview:
             s.text("SET OVERVIEW", x: 8, y: 8)
-            s.text(song.name, x: 8, y: 40, size: 3)
-            s.text("PAD LOAD / DEL CLEAR", x: 8, y: 108)
+            let sel = selectedOverviewSlot
+            let name = sel == currentSlot ? song.name
+                : (Self.loadSet(slot: sel)?.name ?? "EMPTY SLOT \(sel + 1)")
+            s.text(String(name.prefix(16)), x: 8, y: 34, size: 3)
+            s.text("SLOT \(sel + 1)", x: 8, y: 66)
+            s.text("PLAY=PREVIEW TRACK=OPEN", x: 8, y: 96)
+            s.text("SHIFT+PAD=COLOR DEL 2X=CLEAR", x: 8, y: 108)
         case .session, .note:
             header(&s)
             trackStrip(&s)
@@ -2077,11 +2340,16 @@ final class Brain: ObservableObject {
             let saved = Set((0..<64).filter { FileManager.default.fileExists(atPath: Self.slotURL($0).path) })
             for i in 0..<64 {
                 let note = Self.padNote(i)
-                if i == currentSlot {
-                    colors[note] = SIMD3(1, 1, 1)
+                let colorIdx = UserDefaults.standard.object(forKey: "setColor.\(i)") as? Int ?? i % 8
+                if i == selectedOverviewSlot {
+                    // Selected: pulse — white when the slot is empty (manual 6.1).
+                    colors[note] = (saved.contains(i) || i == currentSlot)
+                        ? Self.trackColors[colorIdx % 8] : SIMD3(0.95, 0.95, 0.92)
                     channels[note] = 9
+                } else if i == currentSlot {
+                    colors[note] = Self.trackColors[colorIdx % 8]
                 } else if saved.contains(i) {
-                    colors[note] = Self.trackColors[i % 8] * 0.8
+                    colors[note] = Self.trackColors[colorIdx % 8] * 0.55
                 }
             }
         case .session:

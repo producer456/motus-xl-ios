@@ -129,7 +129,7 @@ struct PanelView: View {
                 .fill(Color.black)
                 .overlay(Circle().strokeBorder(Color(white: 0.3), lineWidth: 0.8 * s))
                 .frame(width: 8 * s, height: 8 * s)
-                .position(x: 920 * s, y: 22 * s)
+                .position(x: 934 * s, y: 22 * s)
 
 
             // XL wordmark on the deck.
@@ -176,8 +176,8 @@ struct PanelView: View {
             // Engraved zone frames (the reference's section outlines).
             ForEach(0..<3, id: \.self) { zone in
                 let frames: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
-                    (100, 22, 292, 74),   // left encoder wing
-                    (645, 22, 270, 74),   // right encoder wing
+                    (94, 18, 304, 82),    // left encoder wing (knobs 99-366, dots to 95)
+                    (639, 18, 285, 82),   // right encoder wing (knobs 648-915)
                     (34, 470, 78, 140),   // plugin bay
                 ]
                 let f = frames[zone]

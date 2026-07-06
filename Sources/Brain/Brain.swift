@@ -776,6 +776,10 @@ final class Brain: ObservableObject {
                 if shiftLocked {
                     shiftLocked = false
                     shiftHeld = false
+                    // The unlock tap must not arm the double-tap detector,
+                    // or unlocking + quickly using shift re-locks instantly.
+                    lastShiftTap = nil
+                    shiftPressedAt = nil
                     showOverlay("SHIFT", 0, "UNLOCKED")
                 } else {
                     shiftHeld = true
@@ -794,6 +798,7 @@ final class Brain: ObservableObject {
                 } else {
                     lastShiftTap = nil
                 }
+                shiftPressedAt = nil
             }
         case "mute":
             muteHeld = down
@@ -1440,7 +1445,7 @@ final class Brain: ObservableObject {
         if shiftHeld {
             captureBuffer.removeAll()
             captureOpen.removeAll()
-            showOverlay("CAPTURE", 0, "BUFFER CLEARED")
+            showOverlay("CAPTURE", 0, shiftLocked ? "CLEARED (SHIFT LOCKED)" : "BUFFER CLEARED")
             return
         }
         guard !captureBuffer.isEmpty else {

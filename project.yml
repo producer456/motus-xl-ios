@@ -42,5 +42,6 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: MotusXL.entitlements
         SWIFT_VERSION: "5.0"
         ENABLE_PREVIEWS: YES

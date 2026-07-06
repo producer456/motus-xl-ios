@@ -57,6 +57,15 @@ final class AudioEngine {
     private var metroEnv: Float = 0
     private var trackGain = [Float](repeating: 1, count: AudioEngine.maxTracks) // render scratch
 
+    // ---- AUv3 instrument hosting ----
+    // Render thread talks to AUs only through captured schedule blocks.
+    private var auSchedule = [AUScheduleMIDIEventBlock?](repeating: nil, count: AudioEngine.maxTracks)
+    private var auUnits: [Int: AVAudioUnit] = [:]          // main thread
+    private var auMixers: [Int: AVAudioMixerNode] = [:]    // main thread
+    /// Sequenced AU note-offs (schedule blocks can't queue future events).
+    private struct PendingOff { var track: Int32 = -1; var key: UInt8 = 0; var frames: Int32 = 0 }
+    private var pendingOffs = [PendingOff](repeating: PendingOff(), count: 256)
+
     func start() {
         configureSession()
         if sourceNode == nil {
@@ -158,6 +167,51 @@ final class AudioEngine {
         return playing
     }
 
+    // MARK: - AUv3 instrument hosting (main thread)
+
+    /// Instantiate and wire an AUv3 instrument onto a track. Returns its name.
+    @MainActor
+    func installAU(track: Int, description: AudioComponentDescription) async throws -> String {
+        removeAU(track: track)
+        let avAU = try await AVAudioUnit.instantiate(with: description,
+                                                     options: .loadOutOfProcess)
+        let mixer = AVAudioMixerNode()
+        engine.attach(avAU)
+        engine.attach(mixer)
+        engine.connect(avAU, to: mixer, format: nil)
+        engine.connect(mixer, to: engine.mainMixerNode, format: nil)
+        mixer.outputVolume = 0.8
+        auUnits[track] = avAU
+        auMixers[track] = mixer
+        let block = avAU.auAudioUnit.scheduleMIDIEventBlock
+        lock.lock(); auSchedule[track] = block; lock.unlock()
+        return avAU.auAudioUnit.audioUnitName ?? avAU.name
+    }
+
+    @MainActor
+    func removeAU(track: Int) {
+        lock.lock(); auSchedule[track] = nil; lock.unlock()
+        if let au = auUnits.removeValue(forKey: track) { engine.detach(au) }
+        if let mixer = auMixers.removeValue(forKey: track) { engine.detach(mixer) }
+    }
+
+    func hasAU(track: Int) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return auSchedule[max(0, min(Self.maxTracks - 1, track))] != nil
+    }
+
+    /// First few parameters of the track's AU, for encoder mapping.
+    func auParameters(track: Int, count: Int = 4) -> [AUParameter] {
+        guard let au = auUnits[track],
+              let params = au.auAudioUnit.parameterTree?.allParameters else { return [] }
+        return Array(params.prefix(count))
+    }
+
+    @MainActor
+    func setAUVolume(track: Int, volume: Float) {
+        auMixers[track]?.outputVolume = volume
+    }
+
     // MARK: - Render
 
     private func render(frameCount: Int, abl: UnsafeMutablePointer<AudioBufferList>) {
@@ -190,12 +244,27 @@ final class AudioEngine {
         let cutoff = cutoffScale, res = resOverride
         let attack = attackScale, release = releaseScale
         let delaySendAmt = delaySend
+        let au = auSchedule
         lock.unlock()
+
+        // Fire due AU note-offs (scheduled by frame countdown).
+        for i in pendingOffs.indices where pendingOffs[i].track >= 0 {
+            if pendingOffs[i].frames <= Int32(frameCount) {
+                let off = pendingOffs[i]
+                if let block = au[Int(off.track)] {
+                    var bytes: [UInt8] = [0x80, off.key, 0]
+                    block(AUEventSampleTimeImmediate + Int64(max(0, off.frames)), 0, 3, &bytes)
+                }
+                pendingOffs[i].track = -1
+            } else {
+                pendingOffs[i].frames -= Int32(frameCount)
+            }
+        }
 
         // Fire immediate UI events.
         for event in renderEvents {
             trigger(event, song: song, kits: kits, cutoff: cutoff, res: res,
-                    attack: attack, release: release)
+                    attack: attack, release: release, auBlocks: au)
         }
         renderEvents.removeAll(keepingCapacity: true) // uniquely owned here
 
@@ -219,12 +288,15 @@ final class AudioEngine {
                     while wrap <= base + steps {
                         let absolute = wrap + start
                         if absolute > windowStart && absolute <= windowEnd {
+                            let lengthFrames = Int(note.lengthSteps * framesPerStepLocal)
                             let started = trigger(
                                 LiveEvent(track: trackIndex, kind: track.kind, key: note.key,
                                           velocity: note.velocity, on: true),
                                 song: song, kits: kits, cutoff: cutoff, res: res,
-                                attack: attack, release: release)
-                            started?.autoOffFrames = Int(note.lengthSteps * framesPerStepLocal)
+                                attack: attack, release: release, auBlocks: au,
+                                frameOffset: Int((absolute - windowStart) * framesPerStepLocal),
+                                offAfterFrames: lengthFrames)
+                            started?.autoOffFrames = lengthFrames
                         }
                         wrap += steps
                     }
@@ -267,7 +339,7 @@ final class AudioEngine {
                     if stepPos >= Double(rawStep) + swingDelay {
                         lastStepFired = rawStep
                         fireStep(rawStep, song: song, kits: kits, cutoff: cutoff, res: res,
-                                 attack: attack, release: release)
+                                 attack: attack, release: release, auBlocks: au, frameOffset: frame)
                         if metronomeOn && rawStep % 4 == 0 {
                             metroEnv = 1
                             metroPhase = 0
@@ -327,7 +399,8 @@ final class AudioEngine {
     }
 
     private func fireStep(_ absStep: Int, song: Song, kits: [Int: LoadedKit],
-                          cutoff: [Float], res: [Float], attack: [Float], release: [Float]) {
+                          cutoff: [Float], res: [Float], attack: [Float], release: [Float],
+                          auBlocks: [AUScheduleMIDIEventBlock?], frameOffset: Int) {
         for (trackIndex, track) in song.tracks.enumerated() where !track.muted {
             guard track.clips.indices.contains(song.selectedScene) else { continue }
             let clip = track.clips[song.selectedScene]
@@ -335,13 +408,15 @@ final class AudioEngine {
             let localStep = absStep % clip.steps
             for note in clip.notes where note.step == localStep && note.off == 0 {
                 if track.kind == .drum && track.mutedCells.contains(note.key) { continue }
+                let lengthFrames = Int(note.lengthSteps * Self.sampleRate * 60 / max(20, song.tempo) / 4)
                 let started = trigger(LiveEvent(track: trackIndex, kind: track.kind, key: note.key,
                                                 velocity: note.velocity, on: true),
                                       song: song, kits: kits, cutoff: cutoff, res: res,
-                                      attack: attack, release: release)
+                                      attack: attack, release: release, auBlocks: auBlocks,
+                                      frameOffset: frameOffset, offAfterFrames: lengthFrames)
                 // Schedule the note-off on exactly the voice this step started
                 // (matching by pitch would also cut finger-held notes short).
-                started?.autoOffFrames = Int(note.lengthSteps * Self.sampleRate * 60 / max(20, song.tempo) / 4)
+                started?.autoOffFrames = lengthFrames
             }
         }
     }
@@ -349,8 +424,27 @@ final class AudioEngine {
     /// Returns the synth voice it started (for length scheduling), else nil.
     @discardableResult
     private func trigger(_ event: LiveEvent, song: Song, kits: [Int: LoadedKit],
-                         cutoff: [Float], res: [Float], attack: [Float], release: [Float]) -> SynthVoice? {
+                         cutoff: [Float], res: [Float], attack: [Float], release: [Float],
+                         auBlocks: [AUScheduleMIDIEventBlock?]? = nil,
+                         frameOffset: Int = 0, offAfterFrames: Int = 0) -> SynthVoice? {
         let t = max(0, min(Self.maxTracks - 1, event.track))
+        // AU-hosted track: translate to MIDI, schedule sample-accurately.
+        if event.kind == .synth, let blocks = auBlocks, let block = blocks[t] {
+            let key = UInt8(max(0, min(127, event.key)))
+            if event.on {
+                var bytes: [UInt8] = [0x90, key, UInt8(max(1, min(127, event.velocity)))]
+                block(AUEventSampleTimeImmediate + Int64(frameOffset), 0, 3, &bytes)
+                if offAfterFrames > 0,
+                   let slot = pendingOffs.firstIndex(where: { $0.track < 0 }) {
+                    pendingOffs[slot] = PendingOff(track: Int32(t), key: key,
+                                                   frames: Int32(offAfterFrames + frameOffset))
+                }
+            } else {
+                var bytes: [UInt8] = [0x80, key, 0]
+                block(AUEventSampleTimeImmediate + Int64(frameOffset), 0, 3, &bytes)
+            }
+            return nil
+        }
         voiceCounter += 1
         if event.kind == .drum {
             guard event.on, let kit = kits[t],

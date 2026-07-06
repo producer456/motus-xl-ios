@@ -34,6 +34,10 @@ struct Track: Codable, Equatable {
     var kind: TrackKind
     var name: String
     var soundIndex: Int = 0             // kit index (drum) or preset index (synth)
+    /// AUv3 instrument on this track ("type:subtype:manufacturer" fourCC
+    /// values, decimal). nil = internal synth. Optional so old sets decode.
+    var auIdentifier: String?
+    var auName: String?
     var volume: Double = 0.8
     var muted = false
     var clips: [Clip] = Array(repeating: Clip(), count: 8)   // 8 scenes

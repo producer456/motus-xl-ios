@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import AVFoundation
 
 /// The standalone Move "firmware": owns the song, modes, OLED screen, LED
 /// state, and drives the audio engine. Exposes the same surface API the
@@ -108,6 +109,7 @@ final class Brain: ObservableObject {
         for (i, t) in song.tracks.enumerated() where t.kind == .drum {
             loadKit(track: i, index: t.soundIndex)
         }
+        reinstallAUs()
         engine.update(song: song)
         engine.setMainVolume(Float(mainVolume))
         uiTimer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
@@ -126,6 +128,73 @@ final class Brain: ObservableObject {
         if step != lastShownStep {
             lastShownStep = step
             refresh()
+        }
+    }
+
+    // MARK: - AUv3 instruments
+
+    /// Installed AUv3 instruments (plus internal presets) for the browser.
+    private lazy var auComponents: [AVAudioUnitComponent] = {
+        var wildcard = AudioComponentDescription()
+        wildcard.componentType = kAudioUnitType_MusicDevice
+        return AVAudioUnitComponentManager.shared().components(matching: wildcard)
+    }()
+
+    private func browserEntries() -> [String] {
+        if track.kind == .drum { return DrumKits.names }
+        return SynthPreset.all.map(\.name)
+            + auComponents.map { "\($0.name) - \($0.manufacturerName)" }
+    }
+
+    private static func auDescription(from id: String) -> AudioComponentDescription? {
+        let parts = id.split(separator: ":").compactMap { UInt32($0) }
+        guard parts.count == 3 else { return nil }
+        return AudioComponentDescription(componentType: parts[0], componentSubType: parts[1],
+                                         componentManufacturer: parts[2],
+                                         componentFlags: 0, componentFlagsMask: 0)
+    }
+
+    private func selectAU(_ component: AVAudioUnitComponent, forTrack trackIndex: Int) {
+        let desc = component.audioComponentDescription
+        let id = "\(desc.componentType):\(desc.componentSubType):\(desc.componentManufacturer)"
+        showOverlay("LOADING", 0.5, String(component.name.prefix(20)))
+        Task { @MainActor in
+            do {
+                let name = try await engine.installAU(track: trackIndex, description: desc)
+                engine.setAUVolume(track: trackIndex,
+                                   volume: Float(song.tracks[trackIndex].volume))
+                edit { song in
+                    song.tracks[trackIndex].auIdentifier = id
+                    song.tracks[trackIndex].auName = name
+                }
+                showOverlay("LOADED", 1, String(name.prefix(20)))
+            } catch {
+                engine.removeAU(track: trackIndex)
+                showOverlay("AU FAILED", 0, String(component.name.prefix(20)))
+            }
+        }
+    }
+
+    /// Re-instantiate the AUs a loaded set references (or drop stale ones).
+    private func reinstallAUs() {
+        for (t, tr) in song.tracks.enumerated() {
+            if let id = tr.auIdentifier, let desc = Self.auDescription(from: id) {
+                let volume = Float(tr.volume)
+                Task { @MainActor in
+                    if let name = try? await engine.installAU(track: t, description: desc) {
+                        engine.setAUVolume(track: t, volume: volume)
+                        adjust { $0.tracks[t].auName = name }
+                    } else {
+                        engine.removeAU(track: t)
+                        adjust {
+                            $0.tracks[t].auIdentifier = nil
+                            $0.tracks[t].auName = nil
+                        }
+                    }
+                }
+            } else {
+                engine.removeAU(track: t)
+            }
         }
     }
 
@@ -341,6 +410,7 @@ final class Brain: ObservableObject {
         for (i, t) in song.tracks.enumerated() where t.kind == .drum {
             loadKit(track: i, index: t.soundIndex)
         }
+        reinstallAUs()
         engine.update(song: song)
         engine.setTransport(playing: false, fromStart: true)
         recording = false
@@ -748,18 +818,28 @@ final class Brain: ObservableObject {
             browserOriginalSound = track.soundIndex
             menu = .browser
         case .browser:
-            let count = track.kind == .drum ? DrumKits.names.count : SynthPreset.all.count
-            guard count > 0 else { menu = .none; break }
-            let chosen = ((browserIndex % count) + count) % count
+            let entries = browserEntries()
+            guard !entries.isEmpty else { menu = .none; break }
+            let chosen = ((browserIndex % entries.count) + entries.count) % entries.count
             // Autoload preview already set soundIndex without an undo entry;
             // rewind to the original first so the commit is a real undo step.
             if autoloadOn, let original = browserOriginalSound {
                 adjust { $0.tracks[$0.selectedTrack].soundIndex = original }
             }
-            edit { $0.tracks[$0.selectedTrack].soundIndex = chosen }
-            if track.kind == .drum { loadKit(track: song.selectedTrack, index: chosen) }
             browserOriginalSound = nil
             menu = .none
+            if track.kind == .synth && chosen >= SynthPreset.all.count {
+                selectAU(auComponents[chosen - SynthPreset.all.count],
+                         forTrack: song.selectedTrack)
+            } else {
+                engine.removeAU(track: song.selectedTrack)
+                edit { song in
+                    song.tracks[song.selectedTrack].soundIndex = chosen
+                    song.tracks[song.selectedTrack].auIdentifier = nil
+                    song.tracks[song.selectedTrack].auName = nil
+                }
+                if track.kind == .drum { loadKit(track: song.selectedTrack, index: chosen) }
+            }
         case .scale:
             scaleEditingRoot.toggle()
         case .metronome:
@@ -788,13 +868,16 @@ final class Brain: ObservableObject {
             adjust { $0.swing = min(1, max(0, $0.swing + Double(delta) * 0.02)) }
         case .browser:
             browserIndex += delta
-            // Autoload (manual 13.3): preview the highlighted sound immediately.
+            // Autoload (manual 13.3): preview the highlighted sound immediately
+            // (internal sounds only — AU instantiation is async and heavy).
             if autoloadOn {
-                let count = track.kind == .drum ? DrumKits.names.count : SynthPreset.all.count
+                let count = browserEntries().count
                 if count > 0 {
                     let sel = ((browserIndex % count) + count) % count
-                    adjust { $0.tracks[$0.selectedTrack].soundIndex = sel }
-                    if track.kind == .drum { loadKit(track: song.selectedTrack, index: sel) }
+                    if sel < (track.kind == .drum ? DrumKits.names.count : SynthPreset.all.count) {
+                        adjust { $0.tracks[$0.selectedTrack].soundIndex = sel }
+                        if track.kind == .drum { loadKit(track: song.selectedTrack, index: sel) }
+                    }
                 }
             }
             refresh()
@@ -847,6 +930,21 @@ final class Brain: ObservableObject {
     func encoder(_ index: Int, delta: Int) {
         let d = Float(delta)
         let t = song.selectedTrack
+        // AU-hosted track: the first four encoders drive the AU's parameters.
+        if index < 4 && engine.hasAU(track: t) {
+            let params = engine.auParameters(track: t)
+            guard params.indices.contains(index) else { return }
+            let param = params[index]
+            let span = param.maxValue - param.minValue
+            let value = max(param.minValue,
+                            min(param.maxValue, param.value + d * span / 64))
+            param.setValue(value, originator: nil)
+            let label = param.string(fromValue: nil) ?? String(format: "%.2f", value)
+            showOverlay(String(param.displayName.prefix(18)),
+                        Double((value - param.minValue) / max(0.0001, span)),
+                        String(label.prefix(18)))
+            return
+        }
         var m = engine.macro(track: t)
         switch index {
         case 0:
@@ -872,6 +970,7 @@ final class Brain: ObservableObject {
             showOverlay("DELAY SEND", Double(m.delay), String(format: "%.0f%%", m.delay * 100))
         case 5:
             adjust { $0.tracks[t].volume = min(1, max(0, $0.tracks[t].volume + Double(d) * 0.02)) }
+            engine.setAUVolume(track: t, volume: Float(track.volume))
             showOverlay("TRACK VOL", track.volume, String(format: "%.0f%%", track.volume * 100))
         case 6:
             adjust { $0.swing = min(1, max(0, $0.swing + Double(d) * 0.02)) }
@@ -1115,8 +1214,8 @@ final class Brain: ObservableObject {
             s.text(name, x: 94, y: 48, size: 2, invert: !scaleEditingRoot)
             s.textCentered("PRESS WHEEL TO SWAP", y: 106)
         case .browser:
-            s.text(track.kind == .drum ? "KITS" : "SOUNDS", x: 8, y: 4)
-            let names = track.kind == .drum ? DrumKits.names : SynthPreset.all.map(\.name)
+            s.text(track.kind == .drum ? "KITS" : "SOUNDS + AU", x: 8, y: 4)
+            let names = browserEntries()
             guard !names.isEmpty else { break }
             let sel = ((browserIndex % names.count) + names.count) % names.count
             for line in -2...2 {
@@ -1207,9 +1306,9 @@ final class Brain: ObservableObject {
     }
 
     private func selectedDetail(_ s: inout Screen) {
-        let soundName = track.kind == .drum
+        let soundName = track.auName ?? (track.kind == .drum
             ? (DrumKits.names.indices.contains(track.soundIndex) ? DrumKits.names[track.soundIndex] : "KIT")
-            : SynthPreset.all[track.soundIndex % SynthPreset.all.count].name
+            : SynthPreset.all[track.soundIndex % SynthPreset.all.count].name)
         s.text("T\(song.selectedTrack + 1)", x: 4, y: 68)
         s.text(String(soundName.prefix(20)), x: 4, y: 80, size: 2)
         let info = track.kind == .synth

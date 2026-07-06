@@ -1909,13 +1909,15 @@ final class Brain: ObservableObject {
                             colors[note] = SIMD3(1, 1, 1)
                         } else if cellsWithNotes.contains(cell) {
                             colors[note] = trackColor
+                        } else {
+                            // Loaded sample = playable = dimly lit (real Move).
+                            colors[note] = trackColor * 0.30
                         }
-                        // empty cells: LED off, bare silicone
                     }
                     for col in 4..<8 {
                         let note = Self.padNote(row * 8 + col)
                         let p = (7 - row) * 4 + (col - 4)
-                        if p == 7 { colors[note] = trackColor } // reference pitch only
+                        colors[note] = p == 7 ? trackColor : trackColor * 0.30
                     }
                 }
             } else {

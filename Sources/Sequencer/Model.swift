@@ -58,6 +58,8 @@ struct Track: Codable, Equatable {
     var selectedPad: Int = 0            // drum: selected cell for step editing
     var octave: Int = 0                 // melodic layout octave shift
     var mutedCells: Set<Int> = []       // drum cell mutes
+    /// Per-drum-cell sample gain (pad-hold + Volume, manual 16.5). nil = 1.0.
+    var cellGains: [Int: Double]?
 }
 
 struct Song: Codable, Equatable {

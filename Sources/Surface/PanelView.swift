@@ -225,6 +225,7 @@ struct PanelView: View {
         6:  ("shuffle", nil),                // Groove / swing
         8:  ("music.note", nil),             // Scale
         9:  ("bolt.fill", nil),              // Full Velocity
+        13: ("plus.square", nil),            // Prepare next clip slot
         14: (nil, "\u{00D7}2"),              // Double Loop  (×2)
         15: ("arrow.right.to.line", nil),    // Quantize
     ]

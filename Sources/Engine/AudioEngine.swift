@@ -529,8 +529,11 @@ final class AudioEngine {
             let voice = drumVoices.first(where: { !$0.active })
                 ?? drumVoices.min(by: { $0.order < $1.order })!   // steal oldest
             voice.order = voiceCounter
+            let gain = song.tracks.indices.contains(t)
+                ? Float(song.tracks[t].cellGains?[event.key] ?? 1.0) : 1.0
             voice.start(sample: kit.cells[event.key], track: t,
-                        velocity: event.velocity, rate: event.rate)
+                        velocity: min(127, Int(Float(event.velocity) * gain)),
+                        rate: event.rate)
         } else {
             if event.on {
                 let soundIndex = song.tracks.indices.contains(t)

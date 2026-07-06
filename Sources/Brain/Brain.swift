@@ -83,6 +83,14 @@ final class Brain: ObservableObject {
 
     // Manual 9.5 sequencing state: pad-then-step / step-then-pad note entry.
     private var heldPads: [Int: Int] = [:]     // melodic pad index -> MIDI note
+    private var heldDrumCells: Set<Int> = []    // drum cells under fingers
+    private var heldTracks: Set<Int> = []       // track buttons held (vol gesture)
+    private var muteDownAt: Date?
+    private var muteUsed = false                // a mute+target combo fired
+    private var notePressAt: Date?              // mode-toggle hold preview
+    private var modeBeforeOverview: Mode = .note
+    /// Pending nav press for long-press variants (octave / full-step nudge).
+    private var pendingNav: (id: String, at: Date)?
     private var heldSteps: Set<Int> = []       // step-row indices currently held
     private var stepEntryUsed: Set<Int> = []   // steps that inserted notes while held
 
@@ -127,7 +135,7 @@ final class Brain: ObservableObject {
 
     /// Step indices that have a Shift function (see shiftStep) — these get an
     /// illuminated legend under the step button on the panel.
-    static let legendSteps = [0, 1, 2, 4, 5, 6, 8, 9, 14, 15]
+    static let legendSteps = [0, 1, 2, 4, 5, 6, 8, 9, 13, 14, 15]
 
     // MARK: - Lifecycle
 
@@ -154,6 +162,16 @@ final class Brain: ObservableObject {
     }
 
     private func tick() {
+        if let nav = pendingNav, Date().timeIntervalSince(nav.at) > 0.55 {
+            pendingNav = nil
+            switch nav.id {
+            case "plus": transposeHeldSteps(by: 12)
+            case "minus": transposeHeldSteps(by: -12)
+            case "left": nudgeHeldSteps(by: -1.0)
+            case "right": nudgeHeldSteps(by: 1.0)
+            default: break
+            }
+        }
         if overlay != nil && Date() > overlayUntil {
             overlay = nil
             refresh()
@@ -295,12 +313,17 @@ final class Brain: ObservableObject {
             guard row >= 4 else { return } // classic layout on the bottom 4 rows
             if col < 4 {
                 let cell = (7 - row) * 4 + col
+                if !down {
+                    heldDrumCells.remove(cell)
+                    return
+                }
                 if down {
                     if deleteHeld {
                         edit { $0.tracks[$0.selectedTrack].clips[$0.selectedScene].notes.removeAll { $0.key == cell } }
                         return
                     }
                     if muteHeld {
+                        muteUsed = true
                         edit {
                             var cells = $0.tracks[$0.selectedTrack].mutedCells
                             if cells.contains(cell) { cells.remove(cell) } else { cells.insert(cell) }
@@ -309,9 +332,18 @@ final class Brain: ObservableObject {
                         return
                     }
                     adjust { $0.tracks[$0.selectedTrack].selectedPad = cell }
+                    heldDrumCells.insert(cell)
                     engine.liveNote(track: song.selectedTrack, kind: .drum, key: cell,
                                     velocity: velocity, on: true)
                     captureNoteOn(key: cell, velocity: velocity)
+                    // Step-then-pad works for drums too (manual 9.5/11.9).
+                    if !heldSteps.isEmpty {
+                        let clipSteps = track.clips[song.selectedScene].steps
+                        let targets = heldSteps.map { barPage * 16 + $0 }
+                        insertNotes([cell], atSteps: targets, velocity: velocity,
+                                    extendTo: targets.contains { $0 >= clipSteps } ? barPage + 1 : nil)
+                        stepEntryUsed.formUnion(heldSteps)
+                    }
                     recordHit(key: cell, velocity: velocity)
                 }
             } else if down {
@@ -648,6 +680,7 @@ final class Brain: ObservableObject {
             captureNoteOff(key: key)
         }
         heldPads.removeAll()
+        heldDrumCells.removeAll()
         heldSteps.removeAll()
         stepEntryUsed.removeAll()
     }
@@ -681,7 +714,9 @@ final class Brain: ObservableObject {
         cancelAUPresetPreview()
         if menu == .loopLength { clearLoopModeLatches() }
         switch index {
-        case 0: mode = .setOverview; menu = .none; refresh()
+        case 0:
+            if mode != .setOverview { modeBeforeOverview = mode }
+            mode = .setOverview; menu = .none; refresh()
         case 1: menu = .setup; refresh()
         case 2: menu = .workflow; refresh()
         case 4: menu = .tempo; refresh()
@@ -705,6 +740,15 @@ final class Brain: ObservableObject {
                 }
                 clip.bars *= 2
                 song.tracks[song.selectedTrack].clips[song.selectedScene] = clip
+            }
+        case 13: // Prepare next available clip slot (manual shift table).
+            guard !track.clips[song.selectedScene].isEmpty else { break }
+            if let empty = (0..<8).first(where: { track.clips[$0].isEmpty }) {
+                adjust { $0.selectedScene = empty }
+                barPage = 0
+                showOverlay("CLIP SLOT", Double(empty + 1) / 8, "SCENE \(empty + 1) READY")
+            } else {
+                showOverlay("CLIP SLOT", 1, "ALL SLOTS USED")
             }
         case 15: // Quantize the clip (manual 11.7).
             quantizeClip()
@@ -741,11 +785,29 @@ final class Brain: ObservableObject {
                     lastShiftTap = nil
                 }
             }
-        case "mute": muteHeld = down
+        case "mute":
+            muteHeld = down
+            if down {
+                muteDownAt = Date()
+                muteUsed = false
+            } else if !muteUsed, let at = muteDownAt,
+                      Date().timeIntervalSince(at) < 0.4 {
+                // Bare Mute press mutes the selected track (manual 16.3).
+                edit { $0.tracks[$0.selectedTrack].muted.toggle() }
+                showOverlay("TRACK \(song.selectedTrack + 1)",
+                            track.muted ? 1 : 0, track.muted ? "MUTED" : "UNMUTED")
+            }
         case "delete": deleteHeld = down
         case "copy": copyHeld = down
         case let id where id.hasPrefix("track"):
-            if down, let n = Int(id.dropFirst(5)) { trackButton(n - 1) }
+            if let n = Int(id.dropFirst(5)) {
+                if down {
+                    heldTracks.insert(n - 1)
+                    trackButton(n - 1)
+                } else {
+                    heldTracks.remove(n - 1)
+                }
+            }
         case "play":
             if down { togglePlay(restart: shiftHeld) }
         case "record":
@@ -773,14 +835,29 @@ final class Brain: ObservableObject {
             if down { captureButton() }
         case "sample":
             if down { showOverlay("SAMPLING", 0, "COMING IN M2") }
-        case "left":
-            if down { leftRight(-1) }
-        case "right":
-            if down { leftRight(1) }
-        case "minus":
-            if down { octave(-1) }
-        case "plus":
-            if down { octave(1) }
+        case "left", "right", "minus", "plus":
+            // With steps held, short press acts on release; a 0.55 s hold
+            // fires the long variant (octave / full-step nudge, manual 11.2/11.4).
+            if down {
+                if !heldSteps.isEmpty {
+                    pendingNav = (id, Date())
+                } else {
+                    switch id {
+                    case "left": leftRight(-1)
+                    case "right": leftRight(1)
+                    case "minus": octave(-1)
+                    default: octave(1)
+                    }
+                }
+            } else if let nav = pendingNav, nav.id == id {
+                pendingNav = nil
+                switch id {
+                case "left": leftRight(-1)
+                case "right": leftRight(1)
+                case "minus": octave(-1)
+                default: octave(1)
+                }
+            }
         case "quantize":
             if down { quantizeClip() }
         case "wheelUp":
@@ -798,6 +875,7 @@ final class Brain: ObservableObject {
     private func trackButton(_ index: Int) {
         guard song.tracks.indices.contains(index) else { return }
         if muteHeld {
+            muteUsed = true
             edit { $0.tracks[index].muted.toggle() }
         } else {
             if menu == .browser { cancelBrowserPreview(); menu = .none } // stale list would commit a random sound
@@ -893,20 +971,25 @@ final class Brain: ObservableObject {
                     barPage >= bars ? "EMPTY: ADD TO KEEP" : "OF \(bars)")
     }
 
+    private func transposeHeldSteps(by semitones: Int) {
+        guard !heldSteps.isEmpty, track.kind == .synth else { return }
+        let steps = heldAbsSteps()
+        stepEntryUsed.formUnion(heldSteps)
+        edit { song in
+            var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
+            for i in c.notes.indices where steps.contains(c.notes[i].step) {
+                c.notes[i].key = min(126, max(1, c.notes[i].key + semitones))
+            }
+            song.tracks[song.selectedTrack].clips[song.selectedScene] = c
+        }
+        showOverlay("NOTES", 0.5, "TRANSPOSED \(semitones > 0 ? "+" : "")\(semitones)")
+    }
+
     private func octave(_ direction: Int) {
         // Step-hold + plus/minus transposes the held notes by a semitone
-        // (manual 11.2, melodic only).
+        // (manual 11.2); long press = an octave (handled via pendingNav).
         if !heldSteps.isEmpty, track.kind == .synth {
-            let steps = heldAbsSteps()
-            stepEntryUsed.formUnion(heldSteps)
-            edit { song in
-                var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
-                for i in c.notes.indices where steps.contains(c.notes[i].step) {
-                    c.notes[i].key = min(126, max(1, c.notes[i].key + direction))
-                }
-                song.tracks[song.selectedTrack].clips[song.selectedScene] = c
-            }
-            showOverlay("NOTES", 0.5, "TRANSPOSED \(direction > 0 ? "+1" : "-1")")
+            transposeHeldSteps(by: direction)
             return
         }
         guard track.kind == .synth else { return }
@@ -1088,7 +1171,7 @@ final class Brain: ObservableObject {
         case .tempo:
             adjust { $0.tempo = min(240, max(40, $0.tempo + (shiftHeld ? 0.1 : 1) * Double(delta))) }
         case .groove:
-            adjust { $0.swing = min(1, max(0, $0.swing + Double(delta) * 0.02)) }
+            adjust { $0.swing = min(1.3, max(0, $0.swing + Double(delta) * 0.02)) }
         case .auPresets:
             browserIndex += delta
             let t = song.selectedTrack
@@ -1138,12 +1221,10 @@ final class Brain: ObservableObject {
                 }
             }
         case .loopLength:
-            let options = [1, 2, 4, 8]
             let clip0 = track.clips[song.selectedScene]
             let bars = clip0.bars
             let minBars = (clip0.loopStart ?? 0) + 1
-            let current = options.lastIndex(where: { $0 <= bars }) ?? 0
-            let newBars = max(minBars, options[min(options.count - 1, max(0, current + delta))])
+            let newBars = max(minBars, min(8, bars + delta))
             guard newBars != bars else { break } // no-op detent: skip undo push
             edit { song in
                 var clip = song.tracks[song.selectedTrack].clips[song.selectedScene]
@@ -1228,7 +1309,7 @@ final class Brain: ObservableObject {
             engine.setAUVolume(track: t, volume: Float(track.volume))
             showOverlay("TRACK VOL", track.volume, String(format: "%.0f%%", track.volume * 100))
         case 6:
-            adjust { $0.swing = min(1, max(0, $0.swing + Double(d) * 0.02)) }
+            adjust { $0.swing = min(1.3, max(0, $0.swing + Double(d) * 0.02)) }
             showOverlay("GROOVE", song.swing, String(format: "%.0f%%", song.swing * 100))
         case 7:
             adjust { $0.tempo = min(240, max(40, $0.tempo + Double(d) * (shiftHeld ? 0.1 : 1))) }
@@ -1242,6 +1323,26 @@ final class Brain: ObservableObject {
         // Step-hold + volume encoder = note velocity (manual 11.1).
         if !heldSteps.isEmpty && mode == .note {
             adjustHeldVelocity(by: delta)
+            return
+        }
+        // Track-hold + volume = that track's volume (manual 16.2).
+        if let t = heldTracks.first {
+            muteUsed = true
+            adjust { $0.tracks[t].volume = min(1, max(0, $0.tracks[t].volume + Double(delta) * 0.02)) }
+            engine.setAUVolume(track: t, volume: Float(song.tracks[t].volume))
+            showOverlay("T\(t + 1) VOLUME", song.tracks[t].volume,
+                        String(format: "%.0f%%", song.tracks[t].volume * 100))
+            return
+        }
+        // Pad-hold + volume = sample gain (manual 16.5), drum cells.
+        if mode == .note, track.kind == .drum, let cell = heldDrumCells.first {
+            adjust { song in
+                var gains = song.tracks[song.selectedTrack].cellGains ?? [:]
+                gains[cell] = min(2, max(0, (gains[cell] ?? 1) + Double(delta) * 0.04))
+                song.tracks[song.selectedTrack].cellGains = gains
+            }
+            let gain = track.cellGains?[cell] ?? 1
+            showOverlay("PAD \(cell + 1) GAIN", gain / 2, String(format: "%.0f%%", gain * 100))
             return
         }
         mainVolume = min(1, max(0, mainVolume + Double(delta) * 0.02))
@@ -1779,6 +1880,28 @@ final class Brain: ObservableObject {
         } else if mode == .session {
             for i in 0..<8 {
                 colors[Self.stepNote(i)] = i == song.selectedScene ? SIMD3(1, 1, 1) : SIMD3(0.1, 0.1, 0.1)
+            }
+        }
+
+        // Holding step(s) lights the pads for the notes they contain (11.9).
+        if mode == .note, !heldSteps.isEmpty {
+            let clip = track.clips[song.selectedScene]
+            let held = heldAbsSteps()
+            let keys = Set(clip.notes.filter { held.contains($0.step) }.map(\.key))
+            if track.kind == .drum {
+                for row in 4..<8 {
+                    for col in 0..<4 where keys.contains((7 - row) * 4 + col) {
+                        colors[Self.padNote(row * 8 + col)] = SIMD3(0.95, 0.95, 0.92)
+                    }
+                }
+            } else {
+                let scale = Scales.all[song.scaleIndex].steps
+                for i in 0..<64 {
+                    let note = Scales.padToNote(i, root: song.rootNote, scale: scale, octave: track.octave)
+                    if keys.contains(note) {
+                        colors[Self.padNote(i)] = SIMD3(0.95, 0.95, 0.92)
+                    }
+                }
             }
         }
 

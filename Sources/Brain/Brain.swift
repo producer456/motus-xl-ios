@@ -11,8 +11,11 @@ final class Brain: ObservableObject {
     @Published var noteColors: [Int: SIMD3<Double>] = [:]
     @Published var noteChannels: [Int: Int] = [:]
     @Published var ccLeds: [Int: Int] = [:]
-    /// Bare theme: no chassis — controls float on the iPad's own glass.
-    @Published var bareTheme = UserDefaults.standard.bool(forKey: "theme.bare")
+    /// 0 = hardware chassis, 1 = bare glass, 2 = vintage (walnut + charcoal).
+    @Published var themeStyle = UserDefaults.standard.object(forKey: "theme.style") == nil
+        ? (UserDefaults.standard.bool(forKey: "theme.bare") ? 1 : 0)
+        : UserDefaults.standard.integer(forKey: "theme.style")
+    var bareTheme: Bool { themeStyle == 1 }
     /// Simulated power state (manual 2: power press → wheel confirms off).
     @Published var poweredOn = true
     /// Native AUv3 plugin view, presented as a sheet when non-nil.
@@ -1349,8 +1352,8 @@ final class Brain: ObservableObject {
             break
         case .setup:
             if setupEditingTheme {
-                bareTheme = delta > 0
-                UserDefaults.standard.set(bareTheme, forKey: "theme.bare")
+                themeStyle = ((themeStyle + (delta > 0 ? 1 : -1)) % 3 + 3) % 3
+                UserDefaults.standard.set(themeStyle, forKey: "theme.style")
             } else {
                 let count = Self.chassisColors.count
                 chassisColorIndex = ((chassisColorIndex + delta) % count + count) % count
@@ -1746,8 +1749,9 @@ final class Brain: ObservableObject {
             s.text("\(DrumKits.names.count) KITS - 8 TRACKS", x: 8, y: 24)
             let colorName = Self.chassisColors[((chassisColorIndex % Self.chassisColors.count)
                 + Self.chassisColors.count) % Self.chassisColors.count].name
+            let themeName = ["HARDWARE", "BARE", "VINTAGE"][((themeStyle % 3) + 3) % 3]
             if setupEditingTheme { s.fillRect(4, 44, 248, 22) }
-            s.text("THEME  \(bareTheme ? "BARE" : "HARDWARE")", x: 12, y: 50, size: 2, invert: setupEditingTheme)
+            s.text("THEME  \(themeName)", x: 12, y: 50, size: 2, invert: setupEditingTheme)
             if !setupEditingTheme { s.fillRect(4, 70, 248, 22) }
             s.text("COLOR  \(colorName)", x: 12, y: 76, size: 2, invert: !setupEditingTheme)
             s.textCentered("TURN=SET PRESS=SWAP", y: 108)

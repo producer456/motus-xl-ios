@@ -42,7 +42,11 @@ struct PanelView: View {
 
     private func panel(scale s: CGFloat) -> some View {
         ZStack {
-            if !client.bareTheme { chassis(scale: s) }
+            switch client.themeStyle {
+            case 1: EmptyView()                    // bare: iPad glass only
+            case 2: vintageChassis(scale: s)       // walnut + charcoal
+            default: chassis(scale: s)
+            }
             controls(scale: s)
                 .offset(x: motion.tilt.x * 2.5 * s, y: motion.tilt.y * 2.5 * s)
         }
@@ -133,6 +137,83 @@ struct PanelView: View {
                 .font(.system(size: 11 * s, weight: .bold, design: .rounded))
                 .kerning(2 * s)
                 .foregroundStyle(Color(white: 0.30))
+                .position(x: 72 * s, y: 428 * s)
+        }
+    }
+
+    /// '70s hardware fantasy: warm charcoal deck between walnut cheeks,
+    /// engraved zone frames — same controls, different era.
+    @ViewBuilder
+    private func vintageChassis(scale s: CGFloat) -> some View {
+        Group {
+            // Warm charcoal deck.
+            RoundedRectangle(cornerRadius: 18 * s)
+                .fill(
+                    LinearGradient(colors: [Color(red: 0.170, green: 0.160, blue: 0.148),
+                                            Color(red: 0.128, green: 0.120, blue: 0.110),
+                                            Color(red: 0.085, green: 0.080, blue: 0.072)],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18 * s)
+                        .strokeBorder(Color.black.opacity(0.8), lineWidth: 1.5 * s)
+                )
+            GrainOverlay(opacity: 0.07)
+                .clipShape(RoundedRectangle(cornerRadius: 18 * s))
+            RadialGradient(colors: [.clear, .black.opacity(0.22)],
+                           center: .center, startRadius: 250 * s, endRadius: 720 * s)
+                .clipShape(RoundedRectangle(cornerRadius: 18 * s))
+                .allowsHitTesting(false)
+
+            // Walnut cheeks.
+            WoodRail(scale: s)
+                .frame(width: 26 * s, height: 699 * s)
+                .position(x: 13 * s, y: 349.5 * s)
+            WoodRail(scale: s)
+                .frame(width: 26 * s, height: 699 * s)
+                .position(x: 1001 * s, y: 349.5 * s)
+
+            // Engraved zone frames (the reference's section outlines).
+            ForEach(0..<3, id: \.self) { zone in
+                let frames: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+                    (114, 30, 340, 60),   // left encoder wing
+                    (663, 30, 316, 60),   // right encoder wing
+                    (34, 470, 78, 140),   // plugin bay
+                ]
+                let f = frames[zone]
+                RoundedRectangle(cornerRadius: 8 * s)
+                    .strokeBorder(Color.white.opacity(0.14), lineWidth: 1 * s)
+                    .frame(width: f.2 * s, height: f.3 * s)
+                    .position(x: (f.0 + f.2 / 2) * s, y: (f.1 + f.3 / 2) * s)
+                    .allowsHitTesting(false)
+            }
+
+            // Recessed wells + screws + bezel, shared with the hardware theme.
+            RecessedWell(cornerRadius: 12 * s)
+                .frame(width: 712 * s, height: 508 * s)
+                .position(x: 520 * s, y: 372 * s)
+            RecessedWell(cornerRadius: 10 * s)
+                .frame(width: 694 * s, height: 48 * s)
+                .position(x: 520 * s, y: 653 * s)
+            RoundedRectangle(cornerRadius: 8 * s)
+                .fill(Color(white: 0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8 * s)
+                        .strokeBorder(Color(red: 0.55, green: 0.44, blue: 0.30).opacity(0.5),
+                                      lineWidth: 1.2 * s)
+                )
+                .frame(width: 190 * s, height: 102 * s)
+                .position(x: 507 * s, y: 66 * s)
+            Screw(diameter: 9 * s, angle: 37).position(x: 40 * s, y: 24 * s)
+            Screw(diameter: 9 * s, angle: 104).position(x: 974 * s, y: 24 * s)
+            Screw(diameter: 9 * s, angle: 61).position(x: 40 * s, y: 676 * s)
+            Screw(diameter: 9 * s, angle: 158).position(x: 974 * s, y: 676 * s)
+
+            // Cream wordmark, badge style.
+            Text("MOVE XL")
+                .font(.system(size: 11 * s, weight: .bold, design: .rounded))
+                .kerning(2 * s)
+                .foregroundStyle(Color(red: 0.85, green: 0.80, blue: 0.68).opacity(0.65))
                 .position(x: 72 * s, y: 428 * s)
         }
     }
@@ -335,4 +416,40 @@ struct AUPluginView: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> UIViewController { viewController }
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+}
+
+
+/// Procedural walnut: warm gradient + vertical grain streaks + sheen.
+struct WoodRail: View {
+    var scale: CGFloat
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.32, green: 0.21, blue: 0.12),
+                                    Color(red: 0.24, green: 0.15, blue: 0.085),
+                                    Color(red: 0.17, green: 0.10, blue: 0.055)],
+                           startPoint: .leading, endPoint: .trailing)
+            Canvas { ctx, size in
+                var seed: UInt64 = 0xC0FFEE
+                func rnd() -> Double {
+                    seed = seed &* 6364136223846793005 &+ 1442695040888963407
+                    return Double((seed >> 33) & 0xFFFF) / 65535.0
+                }
+                for _ in 0..<14 {
+                    let x = rnd() * size.width
+                    let wobble = rnd() * 2 - 1
+                    var path = Path()
+                    path.move(to: CGPoint(x: x, y: 0))
+                    path.addCurve(to: CGPoint(x: x + wobble * 3, y: size.height),
+                                  control1: CGPoint(x: x + wobble * 5, y: size.height * 0.33),
+                                  control2: CGPoint(x: x - wobble * 4, y: size.height * 0.66))
+                    ctx.stroke(path, with: .color(.black.opacity(0.10 + rnd() * 0.12)),
+                               lineWidth: 0.6 + rnd() * 1.1)
+                }
+            }
+            LinearGradient(colors: [.white.opacity(0.10), .clear, .black.opacity(0.25)],
+                           startPoint: .leading, endPoint: .trailing)
+        }
+        .allowsHitTesting(false)
+    }
 }

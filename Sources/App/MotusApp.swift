@@ -7,7 +7,13 @@ struct MotusApp: App {
 
     var body: some Scene {
         WindowGroup {
-            PanelView()
+            Group {
+                if UIDevice.current.userInterfaceIdiom == .phone {
+                    PhonePanelView()   // "Move Go" rack for landscape iPhone
+                } else {
+                    PanelView()
+                }
+            }
                 .environmentObject(brain)
                 .statusBarHidden(true)
                 .persistentSystemOverlays(.hidden)

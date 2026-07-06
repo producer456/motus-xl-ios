@@ -216,7 +216,7 @@ struct StepLegend: View {
 
 struct TrackButton: View {
     @EnvironmentObject var client: Brain
-    var index: Int   // 0 (top) ... 3
+    var index: Int   // 0 (top) ... 7
     var size: CGSize
 
     var body: some View {

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		03C60D8CBDFCD5E10F1A7225 /* Chrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0562D0C6403F664DC328F0F8 /* Chrome.swift */; };
+		0B6CD32F1683A697E1CD4731 /* PhonePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24945182818754D46EDD67CC /* PhonePanelView.swift */; };
 		15A2E7F236AD9CB07695CBDC /* PanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688AF6DA3BC7FB8A60FFBA87 /* PanelView.swift */; };
 		18DC3C6B11A9B61320DE50A9 /* AudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AEDAF1330A0357E561A2333 /* AudioEngine.swift */; };
 		190D9B6F941FB97C799D593C /* Motion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74727B3C220C014CDE53DC95 /* Motion.swift */; };
@@ -28,6 +29,7 @@
 		0562D0C6403F664DC328F0F8 /* Chrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chrome.swift; sourceTree = "<group>"; };
 		0D7FBAA5D3C4CA8469CFF59F /* DrumKits */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DrumKits; path = Resources/DrumKits; sourceTree = SOURCE_ROOT; };
 		0FC37DD6B3097242BA7CCF7C /* Screen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Screen.swift; sourceTree = "<group>"; };
+		24945182818754D46EDD67CC /* PhonePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePanelView.swift; sourceTree = "<group>"; };
 		2659C7694CA879D972213DB0 /* MotusApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotusApp.swift; sourceTree = "<group>"; };
 		2EA8CAAF184C75AD3E2BA02B /* DrumKits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrumKits.swift; sourceTree = "<group>"; };
 		3E42468DD500B4B3D99B9C22 /* DisplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayView.swift; sourceTree = "<group>"; };
@@ -126,6 +128,7 @@
 				74727B3C220C014CDE53DC95 /* Motion.swift */,
 				EB7E928B2A932BF3F22D1A6D /* PadGridView.swift */,
 				688AF6DA3BC7FB8A60FFBA87 /* PanelView.swift */,
+				24945182818754D46EDD67CC /* PhonePanelView.swift */,
 			);
 			path = Surface;
 			sourceTree = "<group>";
@@ -213,6 +216,7 @@
 				BD8D13538DFDC4113ECA30A5 /* MotusApp.swift in Sources */,
 				7AEF96BAE034EE786B7DEA7E /* PadGridView.swift in Sources */,
 				15A2E7F236AD9CB07695CBDC /* PanelView.swift in Sources */,
+				0B6CD32F1683A697E1CD4731 /* PhonePanelView.swift in Sources */,
 				C9933EA3FD894CF8353955B0 /* Screen.swift in Sources */,
 				ED34BBB9D85098C4D214B351 /* SynthVoice.swift in Sources */,
 			);

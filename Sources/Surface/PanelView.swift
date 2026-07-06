@@ -69,8 +69,8 @@ struct PanelView: View {
 
             // Recessed wells the pads and steps sit in.
             RecessedWell(cornerRadius: 12 * s)
-                .frame(width: 693 * s, height: 493 * s)
-                .position(x: 510 * s, y: 383 * s)
+                .frame(width: 676 * s, height: 478 * s)
+                .position(x: 512 * s, y: 379 * s)
             RecessedWell(cornerRadius: 10 * s)
                 .frame(width: 680 * s, height: 54 * s)
                 .position(x: 513 * s, y: 651 * s)
@@ -171,7 +171,7 @@ struct PanelView: View {
                 let legend = Self.stepLegends[index]!
                 StepLegend(stepIndex: index, systemImage: legend.icon,
                            text: legend.text, size: 9 * s)
-                    .position(x: stepX(index) * s, y: 682 * s)
+                    .position(x: stepX(index) * s, y: 687 * s)
             }
 
             FunctionButton(id: "left", systemImage: "chevron.left", diameter: 30 * s)

@@ -211,12 +211,20 @@ struct TrackButton: View {
         } onRelease: {
             client.button("track\(index + 1)", down: false)
         } content: { pressed in
-            Capsule()
-                .fill(lit > 0.02 ? color : Color(white: 0.17))
-                .overlay(Capsule().strokeBorder(Color(white: 0.30), lineWidth: 0.8))
-                .shadow(color: lit > 0.02 ? color.opacity(0.9) : .clear, radius: size.width * 1.0)
-                .frame(width: size.width, height: size.height)
-                .scaleEffect(pressed ? 0.92 : 1)
+            ZStack {
+                // Photo parity: a dark button with a thin LED strip down the
+                // middle — the capsule itself never lights.
+                Capsule()
+                    .fill(Color(white: 0.13))
+                    .overlay(Capsule().strokeBorder(Color(white: 0.28), lineWidth: 0.8))
+                Capsule()
+                    .fill(lit > 0.02 ? color : Color(white: 0.09))
+                    .frame(width: size.width * 0.36, height: size.height * 0.72)
+                    .shadow(color: lit > 0.02 ? color.opacity(0.9) : .clear,
+                            radius: size.width * 0.45)
+            }
+            .frame(width: size.width, height: size.height)
+            .scaleEffect(pressed ? 0.92 : 1)
         }
     }
 }

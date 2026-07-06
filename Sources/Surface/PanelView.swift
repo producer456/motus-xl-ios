@@ -74,7 +74,7 @@ struct PanelView: View {
 
             // ---- 8 track buttons, one per pad row ----
             ForEach(0..<8, id: \.self) { index in
-                TrackButton(index: index, size: CGSize(width: 13 * s, height: 36 * s))
+                TrackButton(index: index, size: CGSize(width: 20 * s, height: 36 * s))
                     .position(x: 164 * s, y: padRowY(index) * s)
             }
 

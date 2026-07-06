@@ -29,6 +29,16 @@ struct PanelView: View {
 
     private func panel(scale s: CGFloat) -> some View {
         ZStack {
+            if !client.bareTheme { chassis(scale: s) }
+            controls(scale: s)
+        }
+    }
+
+    /// The physical-device illusion: shell, wells, screws, bezel, wordmark.
+    /// The bare theme drops all of it — controls float on the iPad's glass.
+    @ViewBuilder
+    private func chassis(scale s: CGFloat) -> some View {
+        Group {
             // Body shell — matte black with a faint top-light sheen.
             RoundedRectangle(cornerRadius: 26 * s)
                 .fill(
@@ -78,6 +88,26 @@ struct PanelView: View {
                 .frame(width: 216 * s, height: 114 * s)
                 .position(x: 500 * s, y: 74 * s)
 
+            Circle() // microphone hole
+                .fill(Color.black)
+                .overlay(Circle().strokeBorder(Color(white: 0.3), lineWidth: 0.8 * s))
+                .frame(width: 8 * s, height: 8 * s)
+                .position(x: 902 * s, y: 24 * s)
+
+
+            // XL wordmark on the deck.
+            Text("MOVE XL")
+                .font(.system(size: 11 * s, weight: .bold, design: .rounded))
+                .kerning(2 * s)
+                .foregroundStyle(Color(white: 0.30))
+                .position(x: 78 * s, y: 415 * s)
+        }
+    }
+
+    /// Everything you actually touch — shared by both themes.
+    @ViewBuilder
+    private func controls(scale s: CGFloat) -> some View {
+        ZStack {
             // ---- Top zone: the XL's big OLED (256x128), encoders, volume ----
             DisplayView(image: client.displayImage)
                 .frame(width: 200 * s, height: 100 * s)
@@ -91,12 +121,6 @@ struct PanelView: View {
                     .frame(width: 6 * s, height: 6 * s)
                     .position(x: encoderX(index) * s, y: 91 * s)
             }
-
-            Circle() // microphone hole
-                .fill(Color.black)
-                .overlay(Circle().strokeBorder(Color(white: 0.3), lineWidth: 0.8 * s))
-                .frame(width: 8 * s, height: 8 * s)
-                .position(x: 902 * s, y: 24 * s)
 
             EncoderView(index: 8, diameter: 52 * s) // volume
                 .position(x: 948 * s, y: 60 * s)
@@ -158,13 +182,6 @@ struct PanelView: View {
                 .position(x: 912 * s, y: 669 * s)
             FunctionButton(id: "right", systemImage: "chevron.right", diameter: 30 * s)
                 .position(x: 950 * s, y: 651 * s)
-
-            // XL wordmark on the deck.
-            Text("MOVE XL")
-                .font(.system(size: 11 * s, weight: .bold, design: .rounded))
-                .kerning(2 * s)
-                .foregroundStyle(Color(white: 0.30))
-                .position(x: 78 * s, y: 415 * s)
         }
     }
 

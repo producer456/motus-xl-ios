@@ -10,6 +10,8 @@ final class Brain: ObservableObject {
     @Published var noteColors: [Int: SIMD3<Double>] = [:]
     @Published var noteChannels: [Int: Int] = [:]
     @Published var ccLeds: [Int: Int] = [:]
+    /// Bare theme: no chassis — controls float on the iPad's own glass.
+    @Published var bareTheme = UserDefaults.standard.bool(forKey: "theme.bare")
 
     let engine = AudioEngine()
 
@@ -830,7 +832,11 @@ final class Brain: ObservableObject {
             guard mode != .setOverview else { return }
             // Main screen: wheel nudges tempo (like grabbing it quickly).
             adjust { $0.tempo = min(240, max(40, $0.tempo + Double(delta))) }
-        case .setup, .metronome, .message:
+        case .setup:
+            bareTheme.toggle()
+            UserDefaults.standard.set(bareTheme, forKey: "theme.bare")
+            refresh()
+        case .metronome, .message:
             break
         }
     }
@@ -1132,9 +1138,12 @@ final class Brain: ObservableObject {
             s.textCentered("TURN=SET PRESS=SWAP", y: 106)
         case .setup:
             s.text("SETUP", x: 8, y: 8)
-            s.text("MOTUS XL", x: 8, y: 34, size: 2)
-            s.text("8 TRACKS - 256X128 OLED", x: 8, y: 64)
-            s.text("\(DrumKits.names.count) KITS LOADED", x: 8, y: 82)
+            s.text("MOTUS XL", x: 8, y: 30, size: 2)
+            s.text("8 TRACKS - 256X128 OLED", x: 8, y: 56)
+            s.text("\(DrumKits.names.count) KITS LOADED", x: 8, y: 70)
+            s.fillRect(4, 86, 248, 22)
+            s.text("THEME  \(bareTheme ? "BARE" : "HARDWARE")", x: 12, y: 92, size: 2, invert: true)
+            s.textCentered("TURN WHEEL TO SWITCH", y: 116)
         case .message(let msg):
             s.textCentered(msg, y: 56, size: 2)
         case .none:

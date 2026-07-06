@@ -68,6 +68,54 @@ struct Song: Codable, Equatable {
     }
 }
 
+extension Song {
+    /// Seeded on first launch so there's something to play with immediately:
+    /// a two-bar C-minor groove across drums, perc, bass, keys, and pad.
+    static func demo() -> Song {
+        var song = Song()
+        song.name = "XL Demo"
+        song.tempo = 112
+        song.swing = 0.10
+        song.rootNote = 0
+        song.scaleIndex = 1 // minor
+
+        func fill(_ track: Int, _ notes: [(Int, Int, Int, Double)]) {
+            var clip = Clip(bars: 2)
+            clip.notes = notes.map { Note(step: $0.0, key: $0.1, velocity: $0.2, lengthSteps: $0.3) }
+            song.tracks[track].clips[0] = clip
+        }
+
+        // Drums: four-on-the-floor kick, backbeat snare, offbeat hats.
+        var drums: [(Int, Int, Int, Double)] = []
+        for step in stride(from: 0, to: 32, by: 4) { drums.append((step, 0, 118, 1)) }
+        for step in [4, 12, 20, 28] { drums.append((step, 1, 108, 1)) }
+        for step in stride(from: 2, to: 32, by: 4) { drums.append((step, 2, 78, 1)) }
+        for step in [14, 30] { drums.append((step, 3, 92, 1)) }
+        fill(0, drums)
+
+        // Perc accents.
+        fill(1, [(3, 4, 70, 1), (11, 4, 70, 1), (19, 4, 70, 1), (27, 4, 74, 1),
+                 (7, 6, 86, 1), (23, 6, 86, 1)])
+
+        // Bass: C minor line.
+        fill(2, [(0, 36, 112, 1.5), (3, 36, 96, 0.5), (6, 39, 104, 1),
+                 (8, 36, 112, 1.5), (11, 36, 96, 0.5), (14, 34, 104, 1.5),
+                 (16, 36, 112, 1.5), (19, 36, 96, 0.5), (22, 39, 104, 1),
+                 (24, 41, 110, 1.5), (27, 41, 94, 0.5), (30, 43, 106, 1.5)])
+
+        // Keys: Cm / Ab / Cm / Bb stabs.
+        fill(3, [(0, 60, 82, 6), (0, 63, 82, 6), (0, 67, 82, 6),
+                 (8, 56, 78, 6), (8, 60, 78, 6), (8, 63, 78, 6),
+                 (16, 60, 82, 6), (16, 63, 82, 6), (16, 67, 82, 6),
+                 (24, 58, 80, 6), (24, 62, 80, 6), (24, 65, 80, 6)])
+
+        // Pad: one long Cm drone underneath.
+        fill(4, [(0, 48, 68, 32), (0, 51, 68, 32), (0, 55, 68, 32)])
+
+        return song
+    }
+}
+
 enum Scales {
     static let all: [(name: String, steps: [Int])] = [
         ("Major", [0, 2, 4, 5, 7, 9, 11]),

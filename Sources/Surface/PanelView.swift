@@ -42,8 +42,8 @@ struct PanelView: View {
 
             // ---- Top zone: the XL's big OLED (256x128), encoders, volume ----
             DisplayView(image: client.displayImage)
-                .frame(width: 250 * s, height: 125 * s)
-                .position(x: 500 * s, y: 85 * s)
+                .frame(width: 200 * s, height: 100 * s)
+                .position(x: 500 * s, y: 74 * s)
 
             ForEach(0..<8, id: \.self) { index in
                 EncoderView(index: index, diameter: 48 * s)
@@ -80,8 +80,8 @@ struct PanelView: View {
 
             // ---- 8x8 pad grid: original Move pad shape (wide 1.5:1) ----
             PadGridView(colors: client.noteColors, channels: client.noteChannels)
-                .frame(width: 640 * s, height: 448 * s)
-                .position(x: 510 * s, y: 394 * s)
+                .frame(width: 665 * s, height: 465 * s)
+                .position(x: 510 * s, y: 383 * s)
 
             // ---- Right rail (2 x 4 function buttons) ----
             rightButton("capture", icon: "viewfinder", column: 0, row: 0, s: s)
@@ -151,7 +151,7 @@ struct PanelView: View {
     }
 
     private func padRowY(_ row: Int) -> CGFloat {
-        198 + CGFloat(row) * 56.2
+        175 + CGFloat(row) * 59.3
     }
 
     private func stepX(_ index: Int) -> CGFloat {
@@ -163,6 +163,6 @@ struct PanelView: View {
         FunctionButton(id: id, systemImage: icon, label: label, diameter: 44 * s,
                        litColor: id == "record" ? .red : .white)
             .position(x: (874 + CGFloat(column) * 52) * s,
-                      y: (226 + CGFloat(row) * 112) * s)
+                      y: (205 + CGFloat(row) * 118) * s)
     }
 }

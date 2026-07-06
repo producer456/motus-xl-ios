@@ -61,15 +61,16 @@ final class Brain: ObservableObject {
     private var uiTimer: AnyCancellable?
     private var lastShownStep = -1
 
+    // Lighter pastels — reads softer on the silicone pads.
     static let trackColors: [SIMD3<Double>] = [
-        SIMD3(0.25, 0.55, 1.0),   // blue
-        SIMD3(1.0, 0.42, 0.30),   // coral
-        SIMD3(0.30, 0.95, 0.60),  // mint
-        SIMD3(0.75, 0.40, 1.0),   // violet
-        SIMD3(1.0, 0.75, 0.20),   // amber
-        SIMD3(0.20, 0.90, 0.95),  // cyan
-        SIMD3(1.0, 0.35, 0.75),   // magenta
-        SIMD3(0.65, 0.95, 0.25),  // lime
+        SIMD3(0.55, 0.72, 1.0),   // pastel blue
+        SIMD3(1.0, 0.63, 0.55),   // pastel coral
+        SIMD3(0.58, 0.97, 0.75),  // pastel mint
+        SIMD3(0.85, 0.64, 1.0),   // pastel violet
+        SIMD3(1.0, 0.85, 0.55),   // pastel amber
+        SIMD3(0.55, 0.94, 0.97),  // pastel cyan
+        SIMD3(1.0, 0.62, 0.85),   // pastel pink
+        SIMD3(0.80, 0.97, 0.58),  // pastel lime
     ]
 
     /// Step indices that have a Shift function (see shiftStep) — these get an
@@ -83,7 +84,11 @@ final class Brain: ObservableObject {
         // Resume the last-used slot so a background auto-save can never
         // overwrite a saved set with a blank one.
         currentSlot = UserDefaults.standard.integer(forKey: "currentSlot")
-        if let saved = Self.loadSet(slot: currentSlot) { song = Self.migrated(saved) }
+        if let saved = Self.loadSet(slot: currentSlot) {
+            song = Self.migrated(saved)
+        } else {
+            song = .demo() // first launch: seed something playable
+        }
         for (i, t) in song.tracks.enumerated() where t.kind == .drum {
             loadKit(track: i, index: t.soundIndex)
         }

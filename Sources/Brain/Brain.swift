@@ -13,6 +13,8 @@ final class Brain: ObservableObject {
     @Published var ccLeds: [Int: Int] = [:]
     /// Bare theme: no chassis — controls float on the iPad's own glass.
     @Published var bareTheme = UserDefaults.standard.bool(forKey: "theme.bare")
+    /// Simulated power state (manual 2: power press → wheel confirms off).
+    @Published var poweredOn = true
     /// Hardware-theme chassis color (palette index, persisted).
     @Published var chassisColorIndex = UserDefaults.standard.integer(forKey: "theme.color")
     private var setupEditingTheme = true
@@ -44,7 +46,7 @@ final class Brain: ObservableObject {
 
     enum Menu: Equatable {
         case none, tempo, groove, metronome, scale, browser, setup, loopLength, workflow
-        case auPresets
+        case auPresets, powerConfirm
         case message(String)
     }
     private var menu = Menu.none
@@ -297,6 +299,7 @@ final class Brain: ObservableObject {
     // MARK: - Surface API: pads
 
     func pad(_ index: Int, down: Bool, velocity: Int = 100) {
+        guard poweredOn else { return }
         let vel = fullVelocity ? 127 : velocity
         switch mode {
         case .setOverview: if down { setOverviewPad(index) }
@@ -526,6 +529,7 @@ final class Brain: ObservableObject {
     // MARK: - Surface API: steps
 
     func step(_ index: Int, down: Bool) {
+        guard poweredOn else { return }
         if !down {
             if menu == .loopLength, mode == .note, loopModeHeld.remove(index) != nil {
                 if loopModeHeld.isEmpty {
@@ -760,6 +764,11 @@ final class Brain: ObservableObject {
     // MARK: - Surface API: buttons
 
     func button(_ id: String, down: Bool) {
+        if id == "power" {
+            if down { powerButton() }
+            return
+        }
+        guard poweredOn else { return }
         switch id {
         case "shift":
             if down {
@@ -1074,7 +1083,45 @@ final class Brain: ObservableObject {
         showOverlay("NOTES NUDGED", Double(shownPercent) / 100, "TO \(shownPercent)%")
     }
 
+    private func powerButton() {
+        if poweredOn {
+            menu = .powerConfirm
+            refresh()
+        } else {
+            poweredOn = true
+            engine.start()
+            // Brief boot wordmark, then the main screen.
+            var boot = Screen()
+            boot.textCentered("MOVE XL", y: 52, size: 3)
+            displayImage = boot.render()
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 700_000_000)
+                if poweredOn { refresh() }
+            }
+            refreshLeds()
+        }
+    }
+
+    private func powerOff() {
+        saveCurrentSet()
+        engine.setTransport(playing: false)
+        recording = false
+        engine.setRecordingActive(false)
+        releaseModifiers()
+        menu = .none
+        poweredOn = false
+        displayImage = nil          // OLED dark
+        noteColors = [:]            // every LED off
+        noteChannels = [:]
+        ccLeds = [:]
+    }
+
     private func wheelPress() {
+        guard poweredOn else { return }
+        if menu == .powerConfirm {
+            powerOff()
+            return
+        }
         // Shift+wheel press: next AU parameter bank (manual: parameter banks).
         if shiftHeld, menu == .none, engine.hasAU(track: song.selectedTrack) {
             let t = song.selectedTrack
@@ -1162,6 +1209,7 @@ final class Brain: ObservableObject {
     // MARK: - Surface API: wheel / encoders / volume
 
     func wheel(delta: Int) {
+        guard poweredOn else { return }
         // Step-hold + wheel = note length (manual 11.3), regardless of menu.
         if !heldSteps.isEmpty && mode == .note {
             adjustHeldLength(by: delta)
@@ -1236,6 +1284,8 @@ final class Brain: ObservableObject {
             guard mode != .setOverview else { return }
             // Main screen: wheel nudges tempo (like grabbing it quickly).
             adjust { $0.tempo = min(240, max(40, $0.tempo + Double(delta))) }
+        case .powerConfirm:
+            break
         case .setup:
             if setupEditingTheme {
                 bareTheme = delta > 0
@@ -1255,6 +1305,7 @@ final class Brain: ObservableObject {
     func encoderTouch(_ index: Int, down: Bool) {}
 
     func encoder(_ index: Int, delta: Int) {
+        guard poweredOn else { return }
         let d = Float(delta)
         let t = song.selectedTrack
         // AU-hosted track (AUSeq convention): encoder 1 = track volume,
@@ -1320,6 +1371,7 @@ final class Brain: ObservableObject {
     }
 
     func volume(delta: Int) {
+        guard poweredOn else { return }
         // Step-hold + volume encoder = note velocity (manual 11.1).
         if !heldSteps.isEmpty && mode == .note {
             adjustHeldVelocity(by: delta)
@@ -1636,6 +1688,10 @@ final class Brain: ObservableObject {
             if !setupEditingTheme { s.fillRect(4, 70, 248, 22) }
             s.text("COLOR  \(colorName)", x: 12, y: 76, size: 2, invert: !setupEditingTheme)
             s.textCentered("TURN=SET PRESS=SWAP", y: 108)
+        case .powerConfirm:
+            s.textCentered("POWER OFF?", y: 30, size: 2)
+            s.textCentered("PRESS WHEEL TO CONFIRM", y: 66)
+            s.textCentered("BACK TO CANCEL", y: 82)
         case .message(let msg):
             s.textCentered(msg, y: 56, size: 2)
         case .none:

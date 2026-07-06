@@ -147,6 +147,25 @@ struct PanelView: View {
             EncoderView(index: 8, diameter: 48 * s, tilt: motion.tilt) // volume
                 .position(x: 966 * s, y: 58 * s)
 
+            // Power button (the real unit's yellow rear button, surfaced).
+            HardwareButton {
+                client.button("power", down: true)
+            } onRelease: {
+                client.button("power", down: false)
+            } content: { pressed in
+                ZStack {
+                    RoundButton(diameter: 20 * s, lit: 0, pressed: pressed)
+                    Image(systemName: "power")
+                        .font(.system(size: 9 * s, weight: .bold))
+                        .foregroundStyle(client.poweredOn
+                                         ? Color(red: 1.0, green: 0.72, blue: 0.15)
+                                         : Color(white: 0.28))
+                        .shadow(color: Color(red: 1.0, green: 0.72, blue: 0.15)
+                            .opacity(client.poweredOn ? 0.6 : 0), radius: 3 * s)
+                }
+            }
+            .position(x: 62 * s, y: 22 * s)
+
             // ---- Left rail: wheel steppers, wheel, back / mode ----
             FunctionButton(id: "wheelUp", systemImage: "chevron.up", diameter: 30 * s)
                 .position(x: 50 * s, y: 150 * s)

@@ -46,8 +46,8 @@ xcodebuild -exportArchive -archivePath "$ARCHIVE_PATH" \
     -allowProvisioningUpdates -authenticationKeyPath "$API_KEY_PATH" \
     -authenticationKeyID "$API_KEY_ID" -authenticationKeyIssuerID "$API_ISSUER"
 
-IPA_DST="$HOME/Desktop/Motus-paddy.ipa"
-cp "$EXPORT_PATH/Motus.ipa" "$IPA_DST"
+IPA_DST="$HOME/Desktop/MotusXL-paddy.ipa"
+cp "$EXPORT_PATH"/*.ipa "$IPA_DST"
 echo ">> Installing to Paddy..."
 xcrun devicectl device install app --device "$PADDY_ID" "$IPA_DST"
 echo "✅ Motus build $BUILD_NUMBER installed on Paddy"

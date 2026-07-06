@@ -1,8 +1,12 @@
 import SwiftUI
+import UIKit
 
 // MARK: - Press/release hardware button wrapper
 
 /// Sends press on touch-down and release on touch-up, like real hardware.
+/// Uses a raw UIKit touch view: SwiftUI's DragGesture(minimumDistance: 0)
+/// can take ~1s to recognize a light, still touch — hardware buttons must
+/// respond the instant the finger lands.
 struct HardwareButton<Content: View>: View {
     var onPress: () -> Void
     var onRelease: () -> Void
@@ -12,17 +16,64 @@ struct HardwareButton<Content: View>: View {
 
     var body: some View {
         content(pressed)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        if !pressed { pressed = true; onPress() }
-                    }
-                    .onEnded { _ in
-                        pressed = false
-                        onRelease()
-                    }
+            .overlay(
+                TouchCatcher(
+                    onDown: { pressed = true; onPress() },
+                    onUp: { pressed = false; onRelease() }
+                )
             )
+    }
+}
+
+/// Transparent UIKit view reporting touch down/up/cancel immediately.
+struct TouchCatcher: UIViewRepresentable {
+    var onDown: () -> Void
+    var onUp: () -> Void
+
+    func makeUIView(context: Context) -> TouchCatcherView {
+        let view = TouchCatcherView()
+        view.onDown = onDown
+        view.onUp = onUp
+        return view
+    }
+
+    func updateUIView(_ view: TouchCatcherView, context: Context) {
+        view.onDown = onDown
+        view.onUp = onUp
+    }
+}
+
+final class TouchCatcherView: UIView {
+    var onDown: (() -> Void)?
+    var onUp: (() -> Void)?
+    private var touching = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isMultipleTouchEnabled = false
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard !touching else { return }
+        touching = true
+        onDown?()
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        endTouch()
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        endTouch()
+    }
+
+    private func endTouch() {
+        guard touching else { return }
+        touching = false
+        onUp?()
     }
 }
 

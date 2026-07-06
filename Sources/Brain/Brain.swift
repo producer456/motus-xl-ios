@@ -144,6 +144,7 @@ final class Brain: ObservableObject {
     func start() {
         engine.start()
         engine.onGraphRebuilt = { [weak self] in self?.reinstallAUs() }
+        engine.setAllPlayingScenes(song.selectedScene)
         // Resume the last-used slot so a background auto-save can never
         // overwrite a saved set with a blank one.
         currentSlot = UserDefaults.standard.integer(forKey: "currentSlot")
@@ -483,9 +484,22 @@ final class Brain: ObservableObject {
             copiedClip = nil
             return
         }
+        // Manual 17.1.2: a pad launches THAT track's clip, quantized to the
+        // next bar; Shift+pad selects without launching; an empty slot stops
+        // the track. Selection follows the launch.
         adjust {
             $0.selectedTrack = trackIndex
             $0.selectedScene = scene
+        }
+        guard !shiftHeld else { return }
+        if song.tracks[trackIndex].clips[scene].isEmpty {
+            engine.stopTrack(trackIndex)
+        } else {
+            engine.launchClip(track: trackIndex, scene: scene)
+            if !engine.isPlaying {
+                purgeGridCapture()
+                engine.setTransport(playing: true, fromStart: true)
+            }
         }
     }
 
@@ -520,6 +534,7 @@ final class Brain: ObservableObject {
         }
         reinstallAUs()
         engine.update(song: song)
+        engine.setAllPlayingScenes(song.selectedScene)
         engine.setTransport(playing: false, fromStart: true)
         recording = false
         engine.setRecordingActive(false)
@@ -551,7 +566,13 @@ final class Brain: ObservableObject {
 
         switch mode {
         case .session:
-            if index < 8 { adjust { $0.selectedScene = index } }
+            let t = index / 2
+            if index % 2 == 0 {
+                if song.tracks.indices.contains(t) { trackButton(t) }
+            } else if song.tracks.indices.contains(t) {
+                engine.stopTrack(t)
+                showOverlay("TRACK \(t + 1)", 0, "STOP QUEUED")
+            }
         case .setOverview:
             break
         case .note:
@@ -750,6 +771,7 @@ final class Brain: ObservableObject {
             guard !track.clips[song.selectedScene].isEmpty else { break }
             if let empty = (0..<8).first(where: { track.clips[$0].isEmpty }) {
                 adjust { $0.selectedScene = empty }
+                engine.setAllPlayingScenes(empty)
                 barPage = 0
                 showOverlay("CLIP SLOT", Double(empty + 1) / 8, "SCENE \(empty + 1) READY")
             } else {
@@ -1475,7 +1497,8 @@ final class Brain: ObservableObject {
                 let now = engine.currentStep
                 for note in captureBuffer where note.onGrid {
                     guard song.tracks.indices.contains(note.track) else { continue }
-                    var clip = song.tracks[note.track].clips[song.selectedScene]
+                    let scene = engine.playbackScene(track: note.track) ?? song.selectedScene
+                    var clip = song.tracks[note.track].clips[scene]
                     guard note.start >= now - Double(clip.loopSteps) else { continue }
                     let region = clip.loopSteps
                     let localExact = Double(clip.loopStartStep)
@@ -1485,7 +1508,7 @@ final class Brain: ObservableObject {
                     clip.notes.append(Note(step: step, key: note.key, velocity: note.velocity,
                                            lengthSteps: max(0.25, (note.length * 4).rounded() / 4),
                                            offset: off))
-                    song.tracks[note.track].clips[song.selectedScene] = clip
+                    song.tracks[note.track].clips[scene] = clip
                     involved.insert(note.track)
                 }
             } else {
@@ -1850,17 +1873,25 @@ final class Brain: ObservableObject {
                 }
             }
         case .session:
+            let session = engine.sessionState()
             for t in 0..<min(8, song.tracks.count) {
                 for scene in 0..<8 {
                     let note = Self.padNote(t * 8 + scene)
                     let clip = song.tracks[t].clips[scene]
-                    if !clip.isEmpty {
-                        colors[note] = Self.trackColors[t]
-                        if scene == song.selectedScene && engine.isPlaying {
-                            channels[note] = 9
+                    if session.queued.indices.contains(t), session.queued[t] == scene {
+                        colors[note] = SIMD3(0.30, 0.95, 0.40)   // queued: pulsing green
+                        channels[note] = 9
+                    } else if session.playing.indices.contains(t), session.playing[t] == scene,
+                              !clip.isEmpty {
+                        colors[note] = Self.trackColors[t]        // playing: pulsing color
+                        channels[note] = engine.isPlaying ? 9 : 0
+                        if session.stopping.indices.contains(t), session.stopping[t] {
+                            colors[note] = Self.trackColors[t] * 0.35 // stopping: dim pulse
                         }
+                    } else if !clip.isEmpty {
+                        colors[note] = Self.trackColors[t] * 0.45 // idle clip
                     } else if scene == song.selectedScene && t == song.selectedTrack {
-                        colors[note] = SIMD3(0.25, 0.25, 0.25)
+                        colors[note] = SIMD3(0.25, 0.25, 0.25)    // selected empty slot
                     }
                 }
             }
@@ -1943,8 +1974,16 @@ final class Brain: ObservableObject {
                 }
             }
         } else if mode == .session {
-            for i in 0..<8 {
-                colors[Self.stepNote(i)] = i == song.selectedScene ? SIMD3(1, 1, 1) : SIMD3(0.1, 0.1, 0.1)
+            let session = engine.sessionState()
+            for i in 0..<16 {
+                let t = i / 2
+                guard song.tracks.indices.contains(t) else { break }
+                if i % 2 == 0 {
+                    colors[Self.stepNote(i)] = Self.trackColors[t]
+                        * (t == song.selectedTrack ? 1.0 : 0.35)
+                } else if session.playing.indices.contains(t), session.playing[t] != nil {
+                    colors[Self.stepNote(i)] = SIMD3(0.6, 0.12, 0.10) // stop available
+                }
             }
         }
 

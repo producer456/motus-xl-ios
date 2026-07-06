@@ -61,6 +61,11 @@ final class AudioEngine {
     private var metroEnv: Float = 0
     private var trackGain = [Float](repeating: 1, count: AudioEngine.maxTracks) // render scratch
 
+    // ---- Session playback (manual 17.1): each track plays its own clip ----
+    private var playingScene = [Int?](repeating: nil, count: AudioEngine.maxTracks)
+    private var queuedScene = [Int?](repeating: nil, count: AudioEngine.maxTracks)
+    private var queuedStop = [Bool](repeating: false, count: AudioEngine.maxTracks)
+
     // ---- AUv3 instrument hosting ----
     // Render thread talks to AUs only through captured schedule blocks.
     private var auSchedule = [AUScheduleMIDIEventBlock?](repeating: nil, count: AudioEngine.maxTracks)
@@ -189,6 +194,53 @@ final class AudioEngine {
         return playing
     }
 
+    /// Launch a track's clip: immediate when stopped, else queued to the
+    /// next bar (manual 17.1.2).
+    func launchClip(track: Int, scene: Int) {
+        let t = max(0, min(Self.maxTracks - 1, track))
+        lock.lock()
+        queuedStop[t] = false
+        if playing {
+            queuedScene[t] = scene
+        } else {
+            playingScene[t] = scene
+            queuedScene[t] = nil
+        }
+        lock.unlock()
+    }
+
+    /// Stop one track's clip at the next bar (immediate when stopped).
+    func stopTrack(_ track: Int) {
+        let t = max(0, min(Self.maxTracks - 1, track))
+        lock.lock()
+        queuedScene[t] = nil
+        if playing { queuedStop[t] = true } else { playingScene[t] = nil }
+        lock.unlock()
+    }
+
+    /// Note-mode scene selection: every track follows (legacy behavior).
+    func setAllPlayingScenes(_ scene: Int) {
+        lock.lock()
+        for t in 0..<Self.maxTracks {
+            playingScene[t] = scene
+            queuedScene[t] = nil
+            queuedStop[t] = false
+        }
+        lock.unlock()
+    }
+
+    /// (playing, queued, stopQueued) per track, for LEDs.
+    func sessionState() -> (playing: [Int?], queued: [Int?], stopping: [Bool]) {
+        lock.lock(); defer { lock.unlock() }
+        return (playingScene, queuedScene, queuedStop)
+    }
+
+    func playbackScene(track: Int) -> Int? {
+        let t = max(0, min(Self.maxTracks - 1, track))
+        lock.lock(); defer { lock.unlock() }
+        return playingScene[t]
+    }
+
     // MARK: - AUv3 instrument hosting (main thread)
 
     /// Instantiate and wire an AUv3 instrument onto a track. Returns its name.
@@ -309,6 +361,7 @@ final class AudioEngine {
         let attack = attackScale, release = releaseScale
         let delaySendAmt = delaySend
         let au = auSchedule
+        var scenes = playingScene
         lock.unlock()
 
         // Fire due AU note-offs (scheduled by frame countdown).
@@ -345,8 +398,9 @@ final class AudioEngine {
             let windowStart = stepPos
             let windowEnd = stepPos + Double(frameCount) / framesPerStepLocal
             for (trackIndex, track) in song.tracks.enumerated() where !track.muted {
-                guard track.clips.indices.contains(song.selectedScene) else { continue }
-                let clip = track.clips[song.selectedScene]
+                guard trackIndex < scenes.count, let scene = scenes[trackIndex],
+                      track.clips.indices.contains(scene) else { continue }
+                let clip = track.clips[scene]
                 let steps = Double(clip.loopSteps)
                 for note in clip.notes where note.off != 0 {
                     if track.kind == .drum && track.mutedCells.contains(note.key) { continue }
@@ -409,7 +463,18 @@ final class AudioEngine {
                     let swingDelay = rawStep % 2 == 1 ? song.swing * 0.5 : 0
                     if stepPos >= Double(rawStep) + swingDelay {
                         lastStepFired = rawStep
-                        fireStep(rawStep, song: song, kits: kits, cutoff: cutoff, res: res,
+                        if rawStep % 16 == 0 {
+                            // Bar boundary: promote queued launches/stops.
+                            lock.lock()
+                            for t in 0..<Self.maxTracks {
+                                if queuedStop[t] { playingScene[t] = nil; queuedStop[t] = false }
+                                if let q = queuedScene[t] { playingScene[t] = q; queuedScene[t] = nil }
+                            }
+                            scenes = playingScene
+                            lock.unlock()
+                        }
+                        fireStep(rawStep, song: song, kits: kits, scenes: scenes,
+                                 cutoff: cutoff, res: res,
                                  attack: attack, release: release, auBlocks: au, frameOffset: frame)
                         if metronomeOn && rawStep % 4 == 0 {
                             metroEnv = 1
@@ -469,12 +534,13 @@ final class AudioEngine {
         lock.unlock()
     }
 
-    private func fireStep(_ absStep: Int, song: Song, kits: [Int: LoadedKit],
+    private func fireStep(_ absStep: Int, song: Song, kits: [Int: LoadedKit], scenes: [Int?],
                           cutoff: [Float], res: [Float], attack: [Float], release: [Float],
                           auBlocks: [AUScheduleMIDIEventBlock?], frameOffset: Int) {
         for (trackIndex, track) in song.tracks.enumerated() where !track.muted {
-            guard track.clips.indices.contains(song.selectedScene) else { continue }
-            let clip = track.clips[song.selectedScene]
+            guard trackIndex < scenes.count, let scene = scenes[trackIndex],
+                  track.clips.indices.contains(scene) else { continue }
+            let clip = track.clips[scene]
             guard !clip.notes.isEmpty else { continue }
             let localStep = clip.localStep(absStep)
             for note in clip.notes where note.step == localStep && note.off == 0 {

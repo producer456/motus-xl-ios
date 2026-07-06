@@ -42,8 +42,8 @@ struct PanelView: View {
 
             // ---- Top zone: the XL's big OLED (256x128), encoders, volume ----
             DisplayView(image: client.displayImage)
-                .frame(width: 290 * s, height: 145 * s)
-                .position(x: 165 * s, y: 92 * s)
+                .frame(width: 250 * s, height: 125 * s)
+                .position(x: 150 * s, y: 85 * s)
 
             ForEach(0..<8, id: \.self) { index in
                 EncoderView(index: index, diameter: 48 * s)

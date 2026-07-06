@@ -52,6 +52,8 @@ enum Chrome {
 struct KnobView: View {
     var diameter: CGFloat
     var tilt: CGPoint = .zero
+    /// Vintage-theme studio lighting: a wide soft drop shadow under the knob.
+    var deepShadow = false
 
     var body: some View {
         ZStack {
@@ -103,6 +105,8 @@ struct KnobView: View {
         .frame(width: diameter, height: diameter)
         .shadow(color: .black.opacity(0.6), radius: diameter * 0.07,
                 x: -tilt.x * diameter * 0.05, y: diameter * 0.05 - tilt.y * diameter * 0.04)
+        .shadow(color: .black.opacity(deepShadow ? 0.45 : 0), radius: diameter * 0.16,
+                x: -tilt.x * diameter * 0.09, y: diameter * 0.14 - tilt.y * diameter * 0.06)
     }
 }
 

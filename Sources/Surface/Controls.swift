@@ -254,12 +254,13 @@ struct EncoderView: View {
     var index: Int        // 0..7, or 8 = volume
     var diameter: CGFloat
     var tilt: CGPoint = .zero
+    var deepShadow = false
 
     @State private var accumulated: CGFloat = 0
     @State private var touching = false
 
     var body: some View {
-        KnobView(diameter: diameter, tilt: tilt)
+        KnobView(diameter: diameter, tilt: tilt, deepShadow: deepShadow)
             .contentShape(Circle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -297,6 +298,7 @@ struct WheelView: View {
     @EnvironmentObject var client: Brain
     var diameter: CGFloat
     var tilt: CGPoint = .zero
+    var deepShadow = false
 
     @State private var lastAngle: CGFloat?
     @State private var touching = false
@@ -332,6 +334,8 @@ struct WheelView: View {
         }
         .frame(width: diameter, height: diameter)
         .shadow(color: .black.opacity(0.6), radius: diameter * 0.05, y: diameter * 0.03)
+        .shadow(color: .black.opacity(deepShadow ? 0.4 : 0), radius: diameter * 0.13,
+                x: -tilt.x * diameter * 0.07, y: diameter * 0.11 - tilt.y * diameter * 0.05)
         .contentShape(Circle())
         .gesture(
             DragGesture(minimumDistance: 0)

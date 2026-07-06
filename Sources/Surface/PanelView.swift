@@ -228,7 +228,7 @@ struct PanelView: View {
                 .position(x: 507 * s, y: 66 * s)
 
             ForEach(0..<8, id: \.self) { index in
-                EncoderView(index: index, diameter: 42 * s, tilt: motion.tilt)
+                EncoderView(index: index, diameter: 42 * s, tilt: motion.tilt, deepShadow: client.themeStyle == 2)
                     .position(x: encoderX(index) * s, y: 58 * s)
                 Circle() // touch indicator dot under each encoder
                     .fill(Color(white: 0.38))
@@ -236,7 +236,7 @@ struct PanelView: View {
                     .position(x: encoderX(index) * s, y: 92 * s)
             }
 
-            EncoderView(index: 8, diameter: 48 * s, tilt: motion.tilt) // volume
+            EncoderView(index: 8, diameter: 48 * s, tilt: motion.tilt, deepShadow: client.themeStyle == 2) // volume
                 .position(x: 966 * s, y: 58 * s)
 
             // Power button (the real unit's yellow rear button, surfaced).
@@ -263,7 +263,7 @@ struct PanelView: View {
                 .position(x: 50 * s, y: 150 * s)
             FunctionButton(id: "wheelDown", systemImage: "chevron.down", diameter: 30 * s)
                 .position(x: 94 * s, y: 150 * s)
-            WheelView(diameter: 88 * s, tilt: motion.tilt)
+            WheelView(diameter: 88 * s, tilt: motion.tilt, deepShadow: client.themeStyle == 2)
                 .position(x: 72 * s, y: 222 * s)
 
             FunctionButton(id: "back", systemImage: "chevron.left", diameter: 34 * s)

@@ -7,7 +7,7 @@ import SwiftUI
 struct PanelView: View {
     @EnvironmentObject var client: Brain
 
-    static let designSize = CGSize(width: 1000, height: 699)
+    static let designSize = CGSize(width: 1014, height: 699)
 
     var body: some View {
         GeometryReader { geo in
@@ -63,17 +63,17 @@ struct PanelView: View {
 
             // Chassis screws.
             Screw(diameter: 13 * s, angle: 37).position(x: 24 * s, y: 24 * s)
-            Screw(diameter: 13 * s, angle: 104).position(x: 976 * s, y: 24 * s)
+            Screw(diameter: 13 * s, angle: 104).position(x: 990 * s, y: 24 * s)
             Screw(diameter: 13 * s, angle: 61).position(x: 24 * s, y: 676 * s)
-            Screw(diameter: 13 * s, angle: 158).position(x: 976 * s, y: 676 * s)
+            Screw(diameter: 13 * s, angle: 158).position(x: 990 * s, y: 676 * s)
 
             // Recessed wells the pads and steps sit in.
             RecessedWell(cornerRadius: 12 * s)
-                .frame(width: 676 * s, height: 478 * s)
-                .position(x: 512 * s, y: 379 * s)
+                .frame(width: 690 * s, height: 478 * s)
+                .position(x: 519 * s, y: 379 * s)
             RecessedWell(cornerRadius: 10 * s)
-                .frame(width: 680 * s, height: 54 * s)
-                .position(x: 513 * s, y: 651 * s)
+                .frame(width: 694 * s, height: 54 * s)
+                .position(x: 520 * s, y: 651 * s)
 
             // Display bezel plate.
             RoundedRectangle(cornerRadius: 8 * s)
@@ -86,13 +86,13 @@ struct PanelView: View {
                             lineWidth: 1.2 * s)
                 )
                 .frame(width: 216 * s, height: 114 * s)
-                .position(x: 500 * s, y: 74 * s)
+                .position(x: 507 * s, y: 74 * s)
 
             Circle() // microphone hole
                 .fill(Color.black)
                 .overlay(Circle().strokeBorder(Color(white: 0.3), lineWidth: 0.8 * s))
                 .frame(width: 8 * s, height: 8 * s)
-                .position(x: 902 * s, y: 24 * s)
+                .position(x: 916 * s, y: 24 * s)
 
 
             // XL wordmark on the deck.
@@ -111,7 +111,7 @@ struct PanelView: View {
             // ---- Top zone: the XL's big OLED (256x128), encoders, volume ----
             DisplayView(image: client.displayImage)
                 .frame(width: 200 * s, height: 100 * s)
-                .position(x: 500 * s, y: 74 * s)
+                .position(x: 507 * s, y: 74 * s)
 
             ForEach(0..<8, id: \.self) { index in
                 EncoderView(index: index, diameter: 48 * s)
@@ -123,7 +123,7 @@ struct PanelView: View {
             }
 
             EncoderView(index: 8, diameter: 52 * s) // volume
-                .position(x: 948 * s, y: 60 * s)
+                .position(x: 962 * s, y: 60 * s)
 
             // ---- Left rail: wheel, back / mode ----
             WheelView(diameter: 100 * s)
@@ -142,8 +142,8 @@ struct PanelView: View {
 
             // ---- 8x8 pad grid: original Move pad shape (wide 1.5:1) ----
             PadGridView(colors: client.noteColors, channels: client.noteChannels)
-                .frame(width: 665 * s, height: 465 * s)
-                .position(x: 510 * s, y: 383 * s)
+                .frame(width: 679 * s, height: 465 * s)
+                .position(x: 517 * s, y: 383 * s)
 
             // ---- Right rail (2 x 4 function buttons) ----
             rightButton("capture", icon: "viewfinder", column: 0, row: 0, s: s)
@@ -175,13 +175,13 @@ struct PanelView: View {
             }
 
             FunctionButton(id: "left", systemImage: "chevron.left", diameter: 30 * s)
-                .position(x: 872 * s, y: 651 * s)
+                .position(x: 886 * s, y: 651 * s)
             FunctionButton(id: "plus", systemImage: "plus", diameter: 26 * s)
-                .position(x: 912 * s, y: 633 * s)
+                .position(x: 926 * s, y: 633 * s)
             FunctionButton(id: "minus", systemImage: "minus", diameter: 26 * s)
-                .position(x: 912 * s, y: 669 * s)
+                .position(x: 926 * s, y: 669 * s)
             FunctionButton(id: "right", systemImage: "chevron.right", diameter: 30 * s)
-                .position(x: 950 * s, y: 651 * s)
+                .position(x: 964 * s, y: 651 * s)
         }
     }
 
@@ -202,7 +202,7 @@ struct PanelView: View {
     /// Encoders 1-4 flank the centered OLED on the left, 5-8 on the right.
     private func encoderX(_ index: Int) -> CGFloat {
         index < 4 ? 120 + CGFloat(index) * 75
-                  : 655 + CGFloat(index - 4) * 75
+                  : 669 + CGFloat(index - 4) * 75
     }
 
     private func padRowY(_ row: Int) -> CGFloat {
@@ -210,14 +210,14 @@ struct PanelView: View {
     }
 
     private func stepX(_ index: Int) -> CGFloat {
-        205 + CGFloat(index) * 41
+        205 + CGFloat(index) * 42
     }
 
     private func rightButton(_ id: String, icon: String? = nil, label: String? = nil,
                              column: Int, row: Int, s: CGFloat) -> some View {
         FunctionButton(id: id, systemImage: icon, label: label, diameter: 44 * s,
                        litColor: id == "record" ? .red : .white)
-            .position(x: (874 + CGFloat(column) * 52) * s,
+            .position(x: (888 + CGFloat(column) * 52) * s,
                       y: (205 + CGFloat(row) * 118) * s)
     }
 }

@@ -366,7 +366,7 @@ struct PanelView: View {
                              column: Int, row: Int, s: CGFloat) -> some View {
         FunctionButton(id: id, systemImage: icon, label: label, diameter: 40 * s,
                        litColor: id == "record" ? .red : .white)
-            .position(x: (921 + CGFloat(column) * 48) * s,
+            .position(x: (906 + CGFloat(column) * 46) * s,
                       y: (148 + CGFloat(row) * 56) * s)
     }
 }

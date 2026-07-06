@@ -53,12 +53,12 @@ final class Brain: ObservableObject {
 
     enum Menu: Equatable {
         case none, tempo, groove, metronome, scale, browser, setup, loopLength, workflow
-        case auPresets, powerConfirm
+        case auPresets, powerConfirm, repeatMenu
         case message(String)
     }
     private var menu = Menu.none
     private var browserIndex = 0
-    private var scaleEditingRoot = true
+    private var scaleRow = 0   // scale menu: 0 layout, 1 key, 2 scale
 
     // Workflow settings (manual ch 13) — device settings, persisted outside the song.
     private var countInOn = UserDefaults.standard.bool(forKey: "wf.countIn")
@@ -113,10 +113,25 @@ final class Brain: ObservableObject {
         var start: Double
         var length: Double
         var onGrid: Bool          // true = step units, false = seconds
+        var pitch: Int? = nil     // 16 Pitches semitone offset
     }
     private var captureBuffer: [CapturedNote] = []
     private var captureOpen: [Int: Int] = [:]  // track*1000+key -> buffer index
 
+    // 16 Pitches (manual 9.2): right 4x4 plays the selected cell repitched.
+    private var sixteenPitches = false
+    // Repeat / Arp (manual 11.6): Shift+Step 11. Chain fires held pads at
+    // the rate; melodic tracks add Up/Down/Random arp styles.
+    private var repeatActive = false
+    private var repeatRateIdx = 3
+    private var repeatStyle = 0        // 0 repeat, 1 up, 2 down, 3 random
+    private var repeatRow = 0          // menu row: 0 style, 1 rate
+    private var repeatArpPos = 0
+    private var repeatChainArmed = false
+    static let repeatRates: [(name: String, steps: Double)] = [
+        ("1/4", 4), ("1/8", 2), ("1/8T", 4.0 / 3),
+        ("1/16", 1), ("1/16T", 2.0 / 3), ("1/32", 0.5),
+    ]
     private var recording = false
     /// Recording began into an empty clip: it grows under the playhead
     /// instead of wrapping (manual: extending recording), up to 16 bars.
@@ -147,7 +162,7 @@ final class Brain: ObservableObject {
 
     /// Step indices that have a Shift function (see shiftStep) — these get an
     /// illuminated legend under the step button on the panel.
-    static let legendSteps = [0, 1, 2, 4, 5, 6, 8, 9, 13, 14, 15]
+    static let legendSteps = [0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15]
 
     // MARK: - Lifecycle
 
@@ -359,6 +374,11 @@ final class Brain: ObservableObject {
                     }
                     adjust { $0.tracks[$0.selectedTrack].selectedPad = cell }
                     heldDrumCells.insert(cell)
+                    if repeatActive {
+                        startRepeatChain()   // the chain fires it at the rate
+                        refreshLeds()
+                        return
+                    }
                     engine.liveNote(track: song.selectedTrack, kind: .drum, key: cell,
                                     velocity: velocity, on: true)
                     captureNoteOn(key: cell, velocity: velocity)
@@ -373,16 +393,21 @@ final class Brain: ObservableObject {
                     recordHit(key: cell, velocity: velocity)
                 }
             } else if down {
-                guard !deleteHeld, !muteHeld else { return }
-                // 16 Pitches: play the selected cell repitched.
+                // 16 Pitches (manual 9.2): toggled via Shift+Step 8; the 16
+                // right pads play the selected cell across the active layout.
+                guard sixteenPitches, !deleteHeld, !muteHeld else { return }
                 let p = (7 - row) * 4 + (col - 4)
-                let rate = pow(2.0, Float(p - 7) / 12)
+                let offset = pitchPadNote(p) - 60
+                let rate = Float(pow(2.0, Double(offset) / 12))
                 engine.liveNote(track: song.selectedTrack, kind: .drum,
                                 key: track.selectedPad, velocity: velocity, on: true, rate: rate)
+                captureNoteOn(key: track.selectedPad, velocity: velocity, pitch: offset)
+                recordHit(key: track.selectedPad, velocity: velocity, pitch: offset)
             }
         } else {
             let scale = Scales.all[song.scaleIndex].steps
-            let note = Scales.padToNote(index, root: song.rootNote, scale: scale, octave: track.octave)
+            let note = Scales.padToNote(index, root: song.rootNote, scale: scale,
+                                        octave: track.octave, chromatic: song.chromatic ?? false)
             if !down {
                 // Releases always land, even with delete/mute held.
                 let released = heldPads.removeValue(forKey: index) ?? note
@@ -403,6 +428,12 @@ final class Brain: ObservableObject {
                 return
             }
             guard !muteHeld else { return }
+            if repeatActive {
+                heldPads[index] = note
+                startRepeatChain()   // staccato hits at the rate, no sustain
+                refreshLeds()
+                return
+            }
             engine.liveNote(track: song.selectedTrack, kind: .synth, key: note,
                             velocity: velocity, on: true)
             captureNoteOn(key: note, velocity: velocity)
@@ -446,7 +477,7 @@ final class Brain: ObservableObject {
         return (step, off < 0.02 ? nil : off)
     }
 
-    private func recordHit(key: Int, velocity: Int) {
+    private func recordHit(key: Int, velocity: Int, pitch: Int? = nil) {
         guard recording, engine.isPlaying, !engine.inCountIn else { return }
         var clip = track.clips[song.selectedScene]
         // Extending record: an empty clip grows under the playhead (whole
@@ -469,9 +500,9 @@ final class Brain: ObservableObject {
         edit { song in
             var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
             c.bars = max(c.bars, clip.bars)
-            c.notes.removeAll { $0.step == step && $0.key == key }
+            c.notes.removeAll { $0.step == step && $0.key == key && $0.pitch == pitch }
             c.notes.append(Note(step: step, key: key, velocity: velocity,
-                                lengthSteps: 1, offset: off))
+                                lengthSteps: 1, offset: off, pitch: pitch))
             song.tracks[song.selectedTrack].clips[song.selectedScene] = c
         }
     }
@@ -780,10 +811,22 @@ final class Brain: ObservableObject {
             menu = .metronome
             refresh()
         case 6: menu = .groove; refresh()
+        case 7: // 16 Pitches toggle (manual 9.2)
+            guard track.kind == .drum else {
+                showOverlay("16 PITCHES", 0, "DRUM TRACKS ONLY"); break
+            }
+            sixteenPitches.toggle()
+            showOverlay("16 PITCHES", sixteenPitches ? 1 : 0, sixteenPitches ? "ON" : "OFF")
         case 8: menu = .scale; refresh()
         case 9:
             fullVelocity.toggle()
             showOverlay("FULL VELOCITY", fullVelocity ? 1 : 0, fullVelocity ? "ON" : "OFF")
+        case 10: // Repeat / Arp (manual 11.6)
+            repeatActive.toggle()
+            repeatArpPos = 0
+            menu = repeatActive ? .repeatMenu : .none
+            if !repeatActive { showOverlay("REPEAT", 0, "OFF") }
+            refresh()
         case 14: // double loop (pre-check so a no-op doesn't pollute undo)
             guard track.clips[song.selectedScene].bars * 2 <= 16 else { break }
             edit { song in
@@ -1084,9 +1127,73 @@ final class Brain: ObservableObject {
             transposeHeldSteps(by: direction)
             return
         }
-        guard track.kind == .synth else { return }
+        guard track.kind == .synth || (track.kind == .drum && sixteenPitches) else { return }
         adjust { $0.tracks[$0.selectedTrack].octave = min(3, max(-3, $0.tracks[$0.selectedTrack].octave + direction)) }
         showOverlay("OCTAVE", 0.5, track.octave >= 0 ? "+\(track.octave)" : "\(track.octave)")
+    }
+
+    // MARK: - Repeat / Arp (manual 11.6)
+
+    /// 16 Pitches pad (0 = bottom-left .. 15) -> MIDI note in the active
+    /// layout; 60 = the sample's own pitch (samples are "assumed C", 9.2).
+    private func pitchPadNote(_ p: Int) -> Int {
+        let row = p / 4, col = p % 4
+        let scale = Scales.all[song.scaleIndex].steps
+        if song.chromatic ?? false {
+            return min(126, max(1, 60 + song.rootNote + track.octave * 12 + row * 5 + col))
+        }
+        let degree = row * 4 + col
+        return min(126, max(1, 60 + song.rootNote + track.octave * 12
+            + degree / scale.count * 12 + scale[degree % scale.count]))
+    }
+
+    private func startRepeatChain() {
+        guard repeatActive, !repeatChainArmed else { return }
+        repeatChainArmed = true
+        repeatFire()
+    }
+
+    /// One repeat hit, then self-schedules the next while pads stay held.
+    /// Uses the plain live/record path so hits capture and record exactly
+    /// like finger hits (manual: repeats land on the step buttons).
+    private func repeatFire() {
+        guard repeatActive, poweredOn else { repeatChainArmed = false; return }
+        let isDrum = track.kind == .drum
+        let keys = isDrum ? heldDrumCells.sorted() : heldPads.values.sorted()
+        guard !keys.isEmpty else { repeatChainArmed = false; return }
+        var fired: [Int]
+        if isDrum || repeatStyle == 0 {
+            fired = keys
+        } else if repeatStyle == 3 {
+            fired = [keys.randomElement()!]
+        } else {
+            let ordered = repeatStyle == 1 ? keys : keys.reversed()
+            fired = [ordered[repeatArpPos % ordered.count]]
+            repeatArpPos += 1
+        }
+        let vel = fullVelocity ? 127 : 100
+        for key in fired {
+            engine.liveNote(track: song.selectedTrack, kind: isDrum ? .drum : .synth,
+                            key: key, velocity: vel, on: true)
+            captureNoteOn(key: key, velocity: vel)
+            recordHit(key: key, velocity: vel)
+        }
+        let interval = Self.repeatRates[repeatRateIdx].steps * 60 / song.tempo / 4
+        let gated = fired
+        DispatchQueue.main.asyncAfter(deadline: .now() + interval * 0.6) { [weak self] in
+            guard let self else { return }
+            for key in gated {
+                if !isDrum {
+                    self.engine.liveNote(track: self.song.selectedTrack, kind: .synth,
+                                         key: key, velocity: 0, on: false)
+                }
+                self.captureNoteOff(key: key)
+                self.recordRelease(key: key)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + interval) { [weak self] in
+            self?.repeatFire()
+        }
     }
 
     // MARK: - Step-hold editing (manual ch 11)
@@ -1278,7 +1385,9 @@ final class Brain: ObservableObject {
                 showOverlay("PRESET", 1, String(preset.name.prefix(20)))
             }
         case .scale:
-            scaleEditingRoot.toggle()
+            scaleRow = (scaleRow + 1) % 3
+        case .repeatMenu:
+            if track.kind != .drum { repeatRow = (repeatRow + 1) % 2 }
         case .metronome:
             metronomeOn.toggle()
             engine.setMetronome(metronomeOn)
@@ -1348,12 +1457,21 @@ final class Brain: ObservableObject {
             refresh()
         case .scale:
             adjust {
-                if scaleEditingRoot {
-                    $0.rootNote = (($0.rootNote + delta) % 12 + 12) % 12
-                } else {
+                switch scaleRow {
+                case 0: $0.chromatic = delta > 0
+                case 1: $0.rootNote = (($0.rootNote + delta) % 12 + 12) % 12
+                default:
                     $0.scaleIndex = (($0.scaleIndex + delta) % Scales.all.count + Scales.all.count) % Scales.all.count
                 }
             }
+        case .repeatMenu:
+            if track.kind != .drum && repeatRow == 0 {
+                repeatStyle = ((repeatStyle + delta) % 4 + 4) % 4
+            } else {
+                let count = Self.repeatRates.count
+                repeatRateIdx = min(count - 1, max(0, repeatRateIdx + delta))
+            }
+            refresh()
         case .loopLength:
             let clip0 = track.clips[song.selectedScene]
             let bars = clip0.bars
@@ -1497,14 +1615,15 @@ final class Brain: ObservableObject {
         captureOpen.removeAll()
     }
 
-    private func captureNoteOn(key: Int, velocity: Int) {
+    private func captureNoteOn(key: Int, velocity: Int, pitch: Int? = nil) {
         // During the count-in the step clock is about to be discarded.
         guard !engine.inCountIn else { return }
         let playing = engine.isPlaying
         let start = playing ? engine.currentStep : Date.timeIntervalSinceReferenceDate
         captureBuffer.append(CapturedNote(track: song.selectedTrack, key: key,
                                           velocity: velocity, start: start,
-                                          length: playing ? 1 : 0.25, onGrid: playing))
+                                          length: playing ? 1 : 0.25, onGrid: playing,
+                                          pitch: pitch))
         captureOpen[song.selectedTrack * 1000 + key] = captureBuffer.count - 1
         if captureBuffer.count > 512 {
             captureBuffer.removeFirst(captureBuffer.count - 512)
@@ -1560,10 +1679,10 @@ final class Brain: ObservableObject {
                     let localExact = Double(clip.loopStartStep)
                         + note.start.truncatingRemainder(dividingBy: Double(region))
                     let (step, off) = quantized(localExact, start: clip.loopStartStep, region: region)
-                    clip.notes.removeAll { $0.step == step && $0.key == note.key }
+                    clip.notes.removeAll { $0.step == step && $0.key == note.key && $0.pitch == note.pitch }
                     clip.notes.append(Note(step: step, key: note.key, velocity: note.velocity,
                                            lengthSteps: max(0.25, (note.length * 4).rounded() / 4),
-                                           offset: off))
+                                           offset: off, pitch: note.pitch))
                     song.tracks[note.track].clips[scene] = clip
                     involved.insert(note.track)
                 }
@@ -1590,9 +1709,9 @@ final class Brain: ObservableObject {
                             .truncatingRemainder(dividingBy: Double(region))
                     let (step, off) = quantized(exact, start: clip.loopStartStep, region: region)
                     let length = max(0.25, ((note.length * stepsPerSecond) * 4).rounded() / 4)
-                    clip.notes.removeAll { $0.step == step && $0.key == note.key }
+                    clip.notes.removeAll { $0.step == step && $0.key == note.key && $0.pitch == note.pitch }
                     clip.notes.append(Note(step: step, key: note.key, velocity: note.velocity,
-                                           lengthSteps: length, offset: off))
+                                           lengthSteps: length, offset: off, pitch: note.pitch))
                     song.tracks[note.track].clips[song.selectedScene] = clip
                     involved.insert(note.track)
                 }
@@ -1740,13 +1859,27 @@ final class Brain: ObservableObject {
             s.textCentered(metronomeOn ? "ON" : "OFF", y: 48, size: 5)
         case .scale:
             s.text("KEY & SCALE", x: 8, y: 8)
-            let root = Scales.noteNames[song.rootNote]
-            let name = Scales.all[song.scaleIndex].name
-            if scaleEditingRoot { s.fillRect(14, 42, 62, 26) }
-            s.text(root, x: 24, y: 48, size: 2, invert: scaleEditingRoot)
-            if !scaleEditingRoot { s.fillRect(88, 42, 156, 26) }
-            s.text(name, x: 94, y: 48, size: 2, invert: !scaleEditingRoot)
-            s.textCentered("PRESS WHEEL TO SWAP", y: 106)
+            let rows = [(song.chromatic ?? false) ? "CHROMATIC" : "IN-KEY",
+                        Scales.noteNames[song.rootNote],
+                        Scales.all[song.scaleIndex].name]
+            for (i, row) in rows.enumerated() {
+                let y = 26 + i * 24
+                if scaleRow == i { s.fillRect(4, y - 5, 248, 20) }
+                s.text(row, x: 12, y: y, size: 2, invert: scaleRow == i)
+            }
+            s.textCentered("TURN=SET PRESS=SWAP", y: 106)
+        case .repeatMenu:
+            let styles = ["REPEAT", "ARP UP", "ARP DOWN", "ARP RANDOM"]
+            s.text(track.kind == .drum ? "REPEAT" : styles[repeatStyle], x: 8, y: 8)
+            if track.kind != .drum {
+                if repeatRow == 0 { s.fillRect(4, 33, 248, 22) }
+                s.text("STYLE  \(styles[repeatStyle])", x: 12, y: 38, size: 2, invert: repeatRow == 0)
+            }
+            let rateY = track.kind == .drum ? 38 : 64
+            if track.kind == .drum || repeatRow == 1 { s.fillRect(4, rateY - 5, 248, 22) }
+            s.text("RATE  \(Self.repeatRates[repeatRateIdx].name)", x: 12, y: rateY, size: 2,
+                   invert: track.kind == .drum || repeatRow == 1)
+            s.textCentered("HOLD PADS TO PLAY", y: 106)
         case .browser:
             s.text(track.kind == .drum ? "KITS" : "SOUNDS + AU", x: 8, y: 4)
             let names = browserEntries()
@@ -1993,16 +2126,23 @@ final class Brain: ObservableObject {
                             colors[note] = trackColor * 0.30
                         }
                     }
-                    for col in 4..<8 {
+                    for col in 4..<8 where sixteenPitches {
                         let note = Self.padNote(row * 8 + col)
-                        let p = (7 - row) * 4 + (col - 4)
-                        colors[note] = p == 7 ? trackColor : trackColor * 0.30
+                        let midi = pitchPadNote((7 - row) * 4 + (col - 4))
+                        let pc = ((midi - song.rootNote) % 12 + 12) % 12
+                        let scale = Scales.all[song.scaleIndex].steps
+                        if pc == 0 {
+                            colors[note] = trackColor          // root: track color
+                        } else if scale.contains(pc) {
+                            colors[note] = SIMD3(0.55, 0.55, 0.53)
+                        } // out of scale: unlit (chromatic), still playable
                     }
                 }
             } else {
                 // Manual pad colors: root notes white, scale notes in the
                 // track color. Sounding notes (held or sequenced) flash green.
                 let scale = Scales.all[song.scaleIndex].steps
+                let chromatic = song.chromatic ?? false
                 var soundingNotes = Set(heldPads.values)
                 if engine.isPlaying {
                     let clip = track.clips[song.selectedScene]
@@ -2012,12 +2152,17 @@ final class Brain: ObservableObject {
                     }
                 }
                 for i in 0..<64 {
-                    let note = Scales.padToNote(i, root: song.rootNote, scale: scale, octave: track.octave)
-                    let isRoot = ((note - song.rootNote) % 12 + 12) % 12 == 0
+                    let note = Scales.padToNote(i, root: song.rootNote, scale: scale,
+                                                octave: track.octave, chromatic: chromatic)
+                    let pc = ((note - song.rootNote) % 12 + 12) % 12
                     if soundingNotes.contains(note) {
                         colors[Self.padNote(i)] = SIMD3(0.35, 1.0, 0.45)
-                    } else {
-                        colors[Self.padNote(i)] = isRoot ? SIMD3(0.92, 0.92, 0.9) : trackColor * 0.5
+                    } else if pc == 0 {
+                        // Manual 9.1: root pads in the track color, scale
+                        // notes light gray, out-of-scale unlit (chromatic).
+                        colors[Self.padNote(i)] = trackColor
+                    } else if !chromatic || scale.contains(pc) {
+                        colors[Self.padNote(i)] = SIMD3(0.55, 0.55, 0.53)
                     }
                 }
             }
@@ -2082,7 +2227,9 @@ final class Brain: ObservableObject {
             } else {
                 let scale = Scales.all[song.scaleIndex].steps
                 for i in 0..<64 {
-                    let note = Scales.padToNote(i, root: song.rootNote, scale: scale, octave: track.octave)
+                    let note = Scales.padToNote(i, root: song.rootNote, scale: scale,
+                                                octave: track.octave,
+                                                chromatic: song.chromatic ?? false)
                     if keys.contains(note) {
                         colors[Self.padNote(i)] = SIMD3(0.95, 0.95, 0.92)
                     }
@@ -2144,7 +2291,9 @@ final class Brain: ObservableObject {
         for step in Self.legendSteps {
             var level = shiftHeld ? 127 : 0
             if step == 5, metronomeOn { level = max(level, 48) }
+            if step == 7, sixteenPitches { level = max(level, 48) }
             if step == 9, fullVelocity { level = max(level, 48) }
+            if step == 10, repeatActive { level = max(level, 48) }
             ccs[200 + step] = level
         }
 

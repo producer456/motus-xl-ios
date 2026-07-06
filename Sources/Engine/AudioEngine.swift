@@ -429,7 +429,8 @@ final class AudioEngine {
                             let lengthFrames = Int(note.lengthSteps * framesPerStepLocal)
                             let started = trigger(
                                 LiveEvent(track: trackIndex, kind: track.kind, key: note.key,
-                                          velocity: note.velocity, on: true),
+                                          velocity: note.velocity, on: true,
+                                          rate: note.pitch.map { powf(2, Float($0) / 12) } ?? 1),
                                 song: song, kits: kits, cutoff: cutoff, res: res,
                                 attack: attack, release: release, auBlocks: au,
                                 frameOffset: Int((absolute - windowStart) * framesPerStepLocal),
@@ -561,7 +562,8 @@ final class AudioEngine {
                 if noteRecentlyPlayedLive(track: trackIndex, key: note.key, swing: song.swing) { continue }
                 let lengthFrames = Int(note.lengthSteps * Self.sampleRate * 60 / max(20, song.tempo) / 4)
                 let started = trigger(LiveEvent(track: trackIndex, kind: track.kind, key: note.key,
-                                                velocity: note.velocity, on: true),
+                                                velocity: note.velocity, on: true,
+                                                rate: note.pitch.map { powf(2, Float($0) / 12) } ?? 1),
                                       song: song, kits: kits, cutoff: cutoff, res: res,
                                       attack: attack, release: release, auBlocks: auBlocks,
                                       frameOffset: frameOffset, offAfterFrames: lengthFrames)

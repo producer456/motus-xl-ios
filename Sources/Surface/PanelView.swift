@@ -341,8 +341,10 @@ struct PanelView: View {
         4:  ("timer", nil),                  // Tempo
         5:  ("metronome.fill", nil),         // Metronome
         6:  ("shuffle", nil),                // Groove / swing
+        7:  ("pianokeys", nil),              // 16 Pitches
         8:  ("music.note", nil),             // Scale
         9:  ("bolt.fill", nil),              // Full Velocity
+        10: ("repeat.1", nil),               // Repeat / Arp
         13: ("plus.square", nil),            // Prepare next clip slot
         14: (nil, "\u{00D7}2"),              // Double Loop  (×2)
         15: ("arrow.right.to.line", nil),    // Quantize

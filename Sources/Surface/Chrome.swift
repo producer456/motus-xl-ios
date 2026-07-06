@@ -89,3 +89,56 @@ struct RoundButton: View {
         .shadow(color: .black.opacity(0.5), radius: diameter * 0.06, y: diameter * 0.04)
     }
 }
+
+/// Recessed tray that pads/steps sit in — dark floor with a bevel that
+/// reads as depth (bright bottom lip, shadowed top lip).
+struct RecessedWell: View {
+    var cornerRadius: CGFloat
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius)
+            .fill(Color(white: 0.065))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(
+                        LinearGradient(colors: [Color.black.opacity(0.9),
+                                                Color(white: 0.20)],
+                                       startPoint: .top, endPoint: .bottom),
+                        lineWidth: 1.4)
+            )
+            .overlay(alignment: .top) {
+                // Inner shadow cast by the top lip.
+                LinearGradient(colors: [Color.black.opacity(0.45), .clear],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: cornerRadius * 1.6)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            }
+            .allowsHitTesting(false)
+    }
+}
+
+/// Hex-cap chassis screw.
+struct Screw: View {
+    var diameter: CGFloat
+    var angle: Double = 37
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    RadialGradient(colors: [Color(white: 0.34), Color(white: 0.12)],
+                                   center: .init(x: 0.35, y: 0.3),
+                                   startRadius: 0, endRadius: diameter * 0.7)
+                )
+            Circle()
+                .strokeBorder(Color.black.opacity(0.75), lineWidth: diameter * 0.08)
+            Rectangle() // drive slot
+                .fill(Color.black.opacity(0.65))
+                .frame(width: diameter * 0.62, height: diameter * 0.11)
+                .rotationEffect(.degrees(angle))
+        }
+        .frame(width: diameter, height: diameter)
+        .shadow(color: .black.opacity(0.6), radius: diameter * 0.1, y: diameter * 0.06)
+        .allowsHitTesting(false)
+    }
+}

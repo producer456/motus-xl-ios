@@ -40,6 +40,40 @@ struct PanelView: View {
                 )
                 .shadow(color: .black.opacity(0.8), radius: 18 * s, y: 6 * s)
 
+            // Edge vignette: light falls off toward the chassis edges.
+            RadialGradient(colors: [.clear, .black.opacity(0.16)],
+                           center: .center,
+                           startRadius: 260 * s, endRadius: 720 * s)
+                .clipShape(RoundedRectangle(cornerRadius: 26 * s))
+                .allowsHitTesting(false)
+
+            // Chassis screws.
+            Screw(diameter: 13 * s, angle: 37).position(x: 24 * s, y: 24 * s)
+            Screw(diameter: 13 * s, angle: 104).position(x: 976 * s, y: 24 * s)
+            Screw(diameter: 13 * s, angle: 61).position(x: 24 * s, y: 676 * s)
+            Screw(diameter: 13 * s, angle: 158).position(x: 976 * s, y: 676 * s)
+
+            // Recessed wells the pads and steps sit in.
+            RecessedWell(cornerRadius: 12 * s)
+                .frame(width: 693 * s, height: 493 * s)
+                .position(x: 510 * s, y: 383 * s)
+            RecessedWell(cornerRadius: 10 * s)
+                .frame(width: 680 * s, height: 54 * s)
+                .position(x: 513 * s, y: 651 * s)
+
+            // Display bezel plate.
+            RoundedRectangle(cornerRadius: 8 * s)
+                .fill(Color(white: 0.055))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8 * s)
+                        .strokeBorder(
+                            LinearGradient(colors: [Color.black, Color(white: 0.24)],
+                                           startPoint: .top, endPoint: .bottom),
+                            lineWidth: 1.2 * s)
+                )
+                .frame(width: 216 * s, height: 114 * s)
+                .position(x: 500 * s, y: 74 * s)
+
             // ---- Top zone: the XL's big OLED (256x128), encoders, volume ----
             DisplayView(image: client.displayImage)
                 .frame(width: 200 * s, height: 100 * s)

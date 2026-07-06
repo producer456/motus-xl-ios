@@ -64,7 +64,15 @@ final class Brain: ObservableObject {
     // Workflow settings (manual ch 13) — device settings, persisted outside the song.
     private var countInOn = UserDefaults.standard.bool(forKey: "wf.countIn")
     private var autoloadOn = UserDefaults.standard.bool(forKey: "wf.autoload")
-    private var workflowRow = 0   // 0 quantize, 1 count-in, 2 autoload
+    private var workflowRow = 0   // 0 quantize, 1 grid, 2 count-in, 3 autoload
+    /// Step Grid (manual 13.2): what one step button represents. Triplet
+    /// grids deactivate every 4th button (12 usable per page).
+    static let stepGrids: [(name: String, size: Double, triplet: Bool)] = [
+        ("1/8", 2, false), ("1/16", 1, false), ("1/16T", 2.0 / 3, true), ("1/32", 0.5, false),
+    ]
+    private var gridIdx = UserDefaults.standard.object(forKey: "wf.grid") == nil
+        ? 1 : UserDefaults.standard.integer(forKey: "wf.grid")
+    private var subPage = 0       // page within the bar for fine grids
     /// Record-quantize amount, hardware default 50% (manual 13.1): notes are
     /// pulled halfway to the nearest 1/16 — tight but human.
     private var quantizePercent = UserDefaults.standard.object(forKey: "wf.quantize") == nil
@@ -407,7 +415,7 @@ final class Brain: ObservableObject {
                     // Step-then-pad works for drums too (manual 9.5/11.9).
                     if !heldSteps.isEmpty {
                         let clipSteps = track.clips[song.selectedScene].steps
-                        let targets = heldSteps.map { barPage * 16 + $0 }
+                        let targets = heldSteps.compactMap { stepPos16($0).map { Int($0) } }
                         insertNotes([cell], atSteps: targets, velocity: velocity,
                                     extendTo: targets.contains { $0 >= clipSteps } ? barPage + 1 : nil)
                         stepEntryUsed.formUnion(heldSteps)
@@ -470,7 +478,7 @@ final class Brain: ObservableObject {
             // a held step on the empty extra bar extends the loop (12.1).
             if !heldSteps.isEmpty {
                 let clipSteps = track.clips[song.selectedScene].steps
-                let targets = heldSteps.map { barPage * 16 + $0 }
+                let targets = heldSteps.compactMap { stepPos16($0).map { Int($0) } }
                 let needsExtension = targets.contains { $0 >= clipSteps }
                 insertNotes([note], atSteps: targets, velocity: velocity,
                             extendTo: needsExtension ? barPage + 1 : nil)
@@ -490,7 +498,8 @@ final class Brain: ObservableObject {
     /// Returns the note's floor step + fractional offset.
     private func quantized(_ exact: Double, start: Int, region: Int) -> (step: Int, offset: Double?) {
         let amount = Double(quantizePercent) / 100
-        let nearest = exact.rounded()
+        let g = Self.stepGrids[gridIdx].size
+        let nearest = (exact / g).rounded() * g
         var q = exact + (nearest - exact) * amount
         let end = Double(start + region)
         if q >= end { q -= Double(region) }
@@ -760,7 +769,10 @@ final class Brain: ObservableObject {
                 return
             }
             let clip = track.clips[song.selectedScene]
-            let step = barPage * 16 + index
+            guard let pos16 = stepPos16(index) else { return } // dead button
+            let step = Int(pos16)
+            let frac = pos16 - Double(step)
+            let g = Self.stepGrids[gridIdx].size
             // Copy/paste (manual 11.8): held Copy arms; a second press while
             // holding sets a range; with a loaded clipboard, steps paste.
             if copyHeld {
@@ -787,7 +799,8 @@ final class Brain: ObservableObject {
                 let drumKey = track.kind == .drum ? track.selectedPad : nil
                 edit { song in
                     song.tracks[song.selectedTrack].clips[song.selectedScene]
-                        .notes.removeAll { $0.step == step && (drumKey == nil || $0.key == drumKey) }
+                        .notes.removeAll { $0.step == step && abs($0.off - frac) < g / 2
+                            && (drumKey == nil || $0.key == drumKey) }
                 }
                 return
             }
@@ -797,20 +810,24 @@ final class Brain: ObservableObject {
                 // on press; a lit step clears on brief release (stepReleased),
                 // so holding it to edit velocity/length never deletes it.
                 let key = track.selectedPad
-                if extendsBar || !clip.notes.contains(where: { $0.step == step && $0.key == key }) {
+                if extendsBar || !clip.notes.contains(where: {
+                    $0.step == step && $0.key == key && abs($0.off - frac) < g / 2
+                }) {
                     stepEntryUsed.insert(index)
                     edit { song in
                         var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
                         if extendsBar { c.bars = barPage + 1 }
                         c.notes.append(Note(step: step, key: key,
-                                            velocity: fullVelocity ? 127 : 100))
+                                            velocity: fullVelocity ? 127 : 100,
+                                            offset: frac > 0.01 ? frac : nil))
                         song.tracks[song.selectedTrack].clips[song.selectedScene] = c
                     }
                 }
             } else if !heldPads.isEmpty {
                 // Melodic pad-then-step (manual 9.5).
                 insertNotes(Array(heldPads.values), atSteps: [step],
-                            velocity: fullVelocity ? 127 : 100, extendTo: extendsBar ? barPage + 1 : nil)
+                            velocity: fullVelocity ? 127 : 100, extendTo: extendsBar ? barPage + 1 : nil,
+                            offset: frac > 0.01 ? frac : nil)
                 stepEntryUsed.insert(index)
             }
         }
@@ -821,15 +838,18 @@ final class Brain: ObservableObject {
     private func stepReleased(_ index: Int) {
         guard heldSteps.remove(index) != nil else { return }
         let used = stepEntryUsed.remove(index) != nil
-        guard !used, mode == .note else { return }
-        let step = barPage * 16 + index
+        guard !used, mode == .note, let pos16 = stepPos16(index) else { return }
+        let step = Int(pos16)
+        let frac = pos16 - Double(step)
+        let g = Self.stepGrids[gridIdx].size
         let drumKey = track.kind == .drum ? track.selectedPad : nil
         guard track.clips[song.selectedScene].notes.contains(where: {
-            $0.step == step && (drumKey == nil || $0.key == drumKey)
+            $0.step == step && abs($0.off - frac) < g / 2 && (drumKey == nil || $0.key == drumKey)
         }) else { return }
         edit { song in
             song.tracks[song.selectedTrack].clips[song.selectedScene]
-                .notes.removeAll { $0.step == step && (drumKey == nil || $0.key == drumKey) }
+                .notes.removeAll { $0.step == step && abs($0.off - frac) < g / 2
+                    && (drumKey == nil || $0.key == drumKey) }
         }
     }
 
@@ -837,7 +857,7 @@ final class Brain: ObservableObject {
     /// first note lands in an empty clip (manual 9.5). extendTo grows the
     /// loop first (adding notes to the empty extra bar keeps it, 12.1).
     private func insertNotes(_ keys: [Int], atSteps steps: [Int], velocity: Int,
-                             extendTo newBars: Int? = nil) {
+                             extendTo newBars: Int? = nil, offset: Double? = nil) {
         let clip = track.clips[song.selectedScene]
         let wasEmpty = clip.isEmpty
         let limit = (newBars ?? clip.bars) * 16
@@ -847,8 +867,10 @@ final class Brain: ObservableObject {
             var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
             if let newBars, newBars > c.bars { c.bars = newBars }
             for step in valid {
-                for key in keys where !c.notes.contains(where: { $0.step == step && $0.key == key }) {
-                    c.notes.append(Note(step: step, key: key, velocity: velocity))
+                for key in keys where !c.notes.contains(where: {
+                    $0.step == step && $0.key == key && abs($0.off - (offset ?? 0)) < 0.25
+                }) {
+                    c.notes.append(Note(step: step, key: key, velocity: velocity, offset: offset))
                 }
             }
             song.tracks[song.selectedTrack].clips[song.selectedScene] = c
@@ -953,9 +975,10 @@ final class Brain: ObservableObject {
         edit { song in
             var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
             let amount = Double(quantizePercent) / 100
+            let g = Self.stepGrids[gridIdx].size
             for i in c.notes.indices {
                 let exact = Double(c.notes[i].step) + c.notes[i].off
-                let nearest = exact.rounded()
+                let nearest = (exact / g).rounded() * g
                 var q = exact + (nearest - exact) * amount
                 if q >= Double(c.steps) { q -= Double(c.steps) }
                 if q < 0 { q = 0 }
@@ -1310,12 +1333,25 @@ final class Brain: ObservableObject {
             nudgeHeldSteps(by: Double(direction) * (shiftHeld ? 0.01 : 0.1))
             return
         }
+        // Fine grids page within the bar first (manual 13.2: "Bar 1 Page 4").
+        let pages = gridPagesPerBar
+        if pages > 1 {
+            let next = subPage + direction
+            if next >= 0 && next < pages {
+                subPage = next
+                showOverlay("BAR \(barPage + 1)", Double(subPage + 1) / Double(pages),
+                            "PAGE \(subPage + 1) OF \(pages)")
+                return
+            }
+        }
         // Arrows move between bars (manual 9.5/12.1) — track selection is the
         // track buttons' job. One page past the end shows an empty bar; it
         // joins the loop if you add notes to it.
         let bars = track.clips[song.selectedScene].bars
         let maxPage = bars < 16 ? bars : bars - 1
-        barPage = min(maxPage, max(0, barPage + direction))
+        let newBar = min(maxPage, max(0, barPage + direction))
+        if newBar != barPage { subPage = direction > 0 ? 0 : pages - 1 }
+        barPage = newBar
         showOverlay("BAR \(barPage + 1)", Double(barPage + 1) / 16,
                     barPage >= bars ? "EMPTY: ADD TO KEEP" : "OF \(bars)")
     }
@@ -1413,6 +1449,29 @@ final class Brain: ObservableObject {
 
     // MARK: - Step-hold editing (manual ch 11)
 
+    /// 16th-step position of a step button under the active grid;
+    /// nil = deactivated button (triplet dead slot / beyond the bar).
+    private func stepPos16(_ index: Int) -> Double? {
+        let g = Self.stepGrids[gridIdx]
+        if g.size == 1 { return Double(barPage * 16 + index) }
+        var slot: Int
+        if g.triplet {
+            if index % 4 == 3 { return nil }   // manual 13.2: every 4th dead
+            slot = index - index / 4 + subPage * 12
+        } else {
+            slot = subPage * 16 + index
+        }
+        let pos = Double(slot) * g.size
+        guard pos < 16 else { return nil }     // beyond this bar (e.g. 1/8)
+        return Double(barPage) * 16 + pos
+    }
+
+    private var gridPagesPerBar: Int {
+        let g = Self.stepGrids[gridIdx]
+        if g.triplet { return 2 }              // 24 steps, 12 per page
+        return max(1, Int((16 / g.size / 16).rounded(.up)))
+    }
+
     /// Absolute step numbers for the currently held step buttons. In Loop
     /// Mode, held steps are bars — edits cover every step in them (11.5).
     private func heldAbsSteps() -> Set<Int> {
@@ -1421,7 +1480,7 @@ final class Brain: ObservableObject {
             for bar in loopModeHeld { for i in 0..<16 { all.insert(bar * 16 + i) } }
             return all
         }
-        return Set(heldSteps.map { barPage * 16 + $0 })
+        return Set(heldSteps.compactMap { stepPos16($0).map { Int($0) } })
     }
 
     /// Held bar-steps in Loop Mode enable the bulk-edit gestures.
@@ -1616,7 +1675,7 @@ final class Brain: ObservableObject {
             metronomeOn.toggle()
             engine.setMetronome(metronomeOn)
         case .workflow:
-            workflowRow = (workflowRow + 1) % 3
+            workflowRow = (workflowRow + 1) % 4
         case .setup:
             setupEditingTheme.toggle()
         default:
@@ -1749,6 +1808,10 @@ final class Brain: ObservableObject {
                 quantizePercent = min(100, max(0, quantizePercent + delta * 5))
                 UserDefaults.standard.set(quantizePercent, forKey: "wf.quantize")
             case 1:
+                gridIdx = min(Self.stepGrids.count - 1, max(0, gridIdx + delta))
+                UserDefaults.standard.set(gridIdx, forKey: "wf.grid")
+                subPage = 0
+            case 2:
                 countInOn = delta > 0
                 UserDefaults.standard.set(countInOn, forKey: "wf.countIn")
             default:
@@ -2320,10 +2383,11 @@ final class Brain: ObservableObject {
         case .workflow:
             s.text("WORKFLOW", x: 8, y: 8)
             let rows = ["QUANTIZE  \(quantizePercent)%",
+                        "STEP GRID  \(Self.stepGrids[gridIdx].name)",
                         "COUNT-IN  \(countInOn ? "ON" : "OFF")",
                         "AUTOLOAD  \(autoloadOn ? "ON" : "OFF")"]
             for (i, row) in rows.enumerated() {
-                let y = 30 + i * 26
+                let y = 26 + i * 22
                 if workflowRow == i { s.fillRect(4, y - 6, 248, 22) }
                 s.text(row, x: 12, y: y, size: 2, invert: workflowRow == i)
             }
@@ -2615,19 +2679,30 @@ final class Brain: ObservableObject {
                 let last = n.step + Int(n.lengthSteps.rounded(.up)) - 1
                 for s in (n.step + 1)...max(n.step + 1, last) { tailSteps.insert(s % clip.steps) }
             }
+            let g = Self.stepGrids[gridIdx].size
+            let playPos = engine.isPlaying
+                ? Double(clip.loopStartStep) + engine.currentStep
+                    .truncatingRemainder(dividingBy: Double(clip.loopSteps))
+                : -1.0
             for i in 0..<16 {
-                let absStep = barPage * 16 + i
                 let note = Self.stepNote(i)
-                let hasNote = clip.notes.contains {
-                    $0.step == absStep && (editKey == nil || $0.key == editKey)
+                guard let pos16 = stepPos16(i) else {
+                    colors[note] = SIMD3(0.02, 0.02, 0.02) // deactivated slot
+                    continue
                 }
-                if absStep == playStep {
+                let absStep = Int(pos16)
+                let frac = pos16 - Double(absStep)
+                let hasNote = clip.notes.contains {
+                    $0.step == absStep && abs($0.off - frac) < g / 2
+                        && (editKey == nil || $0.key == editKey)
+                }
+                if playPos >= pos16, playPos < pos16 + g {
                     colors[note] = SIMD3(0.2, 1.0, 0.3)
                 } else if hasNote {
                     colors[note] = SIMD3(0.95, 0.95, 0.92)
-                } else if tailSteps.contains(absStep) {
+                } else if g == 1, tailSteps.contains(absStep) {
                     colors[note] = SIMD3(0.38, 0.38, 0.36)
-                } else if absStep < clip.steps {
+                } else if pos16 < Double(clip.steps) {
                     colors[note] = trackColor * 0.12
                 } else {
                     colors[note] = SIMD3(0.05, 0.05, 0.05)

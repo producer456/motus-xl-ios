@@ -48,6 +48,20 @@ final class Brain: ObservableObject {
     private var heldSteps: Set<Int> = []       // step-row indices currently held
     private var stepEntryUsed: Set<Int> = []   // steps that inserted notes while held
 
+    /// Retrospective capture (manual 14.3): everything played lands here even
+    /// when not recording. start/length are in steps while the transport runs,
+    /// in seconds while stopped.
+    private struct CapturedNote {
+        var track: Int
+        var key: Int
+        var velocity: Int
+        var start: Double
+        var length: Double
+        var onGrid: Bool          // true = step units, false = seconds
+    }
+    private var captureBuffer: [CapturedNote] = []
+    private var captureOpen: [Int: Int] = [:]  // track*1000+key -> buffer index
+
     private var recording = false
     private var fullVelocity = false
     private var metronomeOn = false
@@ -182,6 +196,7 @@ final class Brain: ObservableObject {
                     adjust { $0.tracks[$0.selectedTrack].selectedPad = cell }
                     engine.liveNote(track: song.selectedTrack, kind: .drum, key: cell,
                                     velocity: velocity, on: true)
+                    captureNoteOn(key: cell, velocity: velocity)
                     recordHit(key: cell, velocity: velocity)
                 }
             } else if down {
@@ -209,6 +224,7 @@ final class Brain: ObservableObject {
             engine.liveNote(track: song.selectedTrack, kind: .synth, key: note,
                             velocity: velocity, on: down)
             if down {
+                captureNoteOn(key: note, velocity: velocity)
                 heldPads[index] = note
                 // Step-then-pad (manual 9.5): held step(s) receive this pitch.
                 if !heldSteps.isEmpty {
@@ -219,6 +235,7 @@ final class Brain: ObservableObject {
                 recordHit(key: note, velocity: velocity)
             } else {
                 heldPads.removeValue(forKey: index)
+                captureNoteOff(key: note)
                 recordRelease(key: note)
             }
         }
@@ -514,7 +531,7 @@ final class Brain: ObservableObject {
                 refresh()
             }
         case "capture":
-            if down { showOverlay("CAPTURE", 0, "COMING IN M2") }
+            if down { captureButton() }
         case "sample":
             if down { showOverlay("SAMPLING", 0, "COMING IN M2") }
         case "left":
@@ -854,6 +871,88 @@ final class Brain: ObservableObject {
         mainVolume = min(1, max(0, mainVolume + Double(delta) * 0.02))
         engine.setMainVolume(Float(mainVolume))
         showOverlay("MAIN VOLUME", mainVolume, String(format: "%.0f%%", mainVolume * 100))
+    }
+
+    // MARK: - Capture (manual 14.3)
+
+    private func captureNoteOn(key: Int, velocity: Int) {
+        let playing = engine.isPlaying
+        let start = playing ? engine.currentStep : Date.timeIntervalSinceReferenceDate
+        captureBuffer.append(CapturedNote(track: song.selectedTrack, key: key,
+                                          velocity: velocity, start: start,
+                                          length: playing ? 1 : 0.25, onGrid: playing))
+        captureOpen[song.selectedTrack * 1000 + key] = captureBuffer.count - 1
+        if captureBuffer.count > 512 {
+            captureBuffer.removeFirst(captureBuffer.count - 512)
+            captureOpen.removeAll() // indices invalidated; lengths stay default
+        }
+    }
+
+    private func captureNoteOff(key: Int) {
+        guard let i = captureOpen.removeValue(forKey: song.selectedTrack * 1000 + key),
+              captureBuffer.indices.contains(i) else { return }
+        let end = captureBuffer[i].onGrid ? engine.currentStep : Date.timeIntervalSinceReferenceDate
+        captureBuffer[i].length = max(0.05, end - captureBuffer[i].start)
+    }
+
+    private func captureButton() {
+        if shiftHeld {
+            captureBuffer.removeAll()
+            captureOpen.removeAll()
+            showOverlay("CAPTURE", 0, "BUFFER CLEARED")
+            return
+        }
+        guard !captureBuffer.isEmpty else {
+            showOverlay("CAPTURE", 0, "NOTHING PLAYED YET")
+            return
+        }
+        let wasPlaying = engine.isPlaying
+        var involved = Set<Int>()
+        edit { song in
+            if wasPlaying {
+                // On-grid pass: pull each track's last loop-length of playing.
+                let now = engine.currentStep
+                for note in captureBuffer where note.onGrid {
+                    guard song.tracks.indices.contains(note.track) else { continue }
+                    var clip = song.tracks[note.track].clips[song.selectedScene]
+                    guard note.start >= now - Double(clip.steps) else { continue }
+                    let step = Int(note.start.rounded()) % clip.steps
+                    clip.notes.removeAll { $0.step == step && $0.key == note.key }
+                    clip.notes.append(Note(step: step, key: note.key, velocity: note.velocity,
+                                           lengthSteps: max(0.25, (note.length * 4).rounded() / 4)))
+                    song.tracks[note.track].clips[song.selectedScene] = clip
+                    involved.insert(note.track)
+                }
+            } else {
+                // Free-time pass: quantize the last 16 seconds at current tempo.
+                let cutoff = Date.timeIntervalSinceReferenceDate - 16
+                let phrase = captureBuffer.filter { !$0.onGrid && $0.start >= cutoff }
+                guard let t0 = phrase.map(\.start).min() else { return }
+                let stepsPerSecond = song.tempo / 60 * 4
+                let maxStep = phrase.map { ($0.start - t0) * stepsPerSecond }.max() ?? 0
+                let bars = min(8, max(1, Int(maxStep / 16) + 1))
+                for note in phrase {
+                    guard song.tracks.indices.contains(note.track) else { continue }
+                    var clip = song.tracks[note.track].clips[song.selectedScene]
+                    clip.bars = max(clip.bars, bars)
+                    let step = Int(((note.start - t0) * stepsPerSecond).rounded()) % clip.steps
+                    let length = max(0.25, ((note.length * stepsPerSecond) * 4).rounded() / 4)
+                    clip.notes.removeAll { $0.step == step && $0.key == note.key }
+                    clip.notes.append(Note(step: step, key: note.key, velocity: note.velocity,
+                                           lengthSteps: length))
+                    song.tracks[note.track].clips[song.selectedScene] = clip
+                    involved.insert(note.track)
+                }
+            }
+        }
+        guard !involved.isEmpty else {
+            showOverlay("CAPTURE", 0, "NOTHING IN WINDOW")
+            return
+        }
+        captureBuffer.removeAll()
+        captureOpen.removeAll()
+        if !wasPlaying { engine.setTransport(playing: true, fromStart: true) }
+        showOverlay("CAPTURED", 1, "\(involved.count) TRACK\(involved.count > 1 ? "S" : "")")
     }
 
     // MARK: - Undo / persistence
@@ -1256,7 +1355,7 @@ final class Brain: ObservableObject {
         ccs[Self.buttonCC["right"]!] = song.selectedTrack < 3 || shiftHeld ? 40 : 8
         ccs[Self.buttonCC["minus"]!] = track.kind == .synth ? 40 : 8
         ccs[Self.buttonCC["plus"]!] = track.kind == .synth ? 40 : 8
-        ccs[Self.buttonCC["capture"]!] = 12
+        ccs[Self.buttonCC["capture"]!] = captureBuffer.isEmpty ? 12 : 90
         ccs[Self.buttonCC["sample"]!] = 12
 
         // Shift-function legends under the step row (synthetic CCs, 200 + step).

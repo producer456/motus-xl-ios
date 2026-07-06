@@ -55,6 +55,7 @@ final class AudioEngine {
 
     private var metroPhase: Float = 0
     private var metroEnv: Float = 0
+    private var trackGain = [Float](repeating: 1, count: AudioEngine.maxTracks) // render scratch
 
     func start() {
         configureSession()
@@ -200,7 +201,8 @@ final class AudioEngine {
 
         // Nudged notes (fractional step offsets) fire on a per-block scan:
         // early by at most one buffer (~3 ms), which beats per-frame scans.
-        if playing {
+        // Held back during the count-in bar just like on-grid notes.
+        if playing && countInStepsLeft == 0 {
             let framesPerStepLocal = Self.sampleRate * 60 / max(20, song.tempo) / 4
             let windowStart = stepPos
             let windowEnd = stepPos + Double(frameCount) / framesPerStepLocal
@@ -213,7 +215,8 @@ final class AudioEngine {
                     let start = Double(note.step) + note.off
                     // Does start (mod loop) fall inside this block's window?
                     let base = (windowStart / steps).rounded(.down) * steps
-                    for wrap in [base, base + steps] {
+                    var wrap = base
+                    while wrap <= base + steps {
                         let absolute = wrap + start
                         if absolute > windowStart && absolute <= windowEnd {
                             let started = trigger(
@@ -223,6 +226,7 @@ final class AudioEngine {
                                 attack: attack, release: release)
                             started?.autoOffFrames = Int(note.lengthSteps * framesPerStepLocal)
                         }
+                        wrap += steps
                     }
                 }
             }
@@ -231,10 +235,9 @@ final class AudioEngine {
         let framesPerStep = Self.sampleRate * 60 / max(20, song.tempo) / 4
         let stepInc = 1.0 / framesPerStep
         var wetL: Float = 0, wetR: Float = 0
-        // Per-track gain, applied at the voice sum.
-        var trackGain = [Float](repeating: 1, count: Self.maxTracks)
-        for (i, t) in song.tracks.enumerated() where i < Self.maxTracks {
-            trackGain[i] = Float(t.volume)
+        // Per-track gain, applied at the voice sum (preallocated scratch).
+        for i in 0..<Self.maxTracks {
+            trackGain[i] = i < song.tracks.count ? Float(song.tracks[i].volume) : 1
         }
 
         for frame in 0..<frameCount {

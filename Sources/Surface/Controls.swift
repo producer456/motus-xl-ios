@@ -48,16 +48,22 @@ struct FunctionButton: View {
             client.button(id, down: false)
         } content: { pressed in
             ZStack {
-                RoundButton(diameter: diameter, lit: brightness, color: litColor, pressed: pressed)
-                if let systemImage {
-                    Image(systemName: systemImage)
-                        .font(.system(size: diameter * 0.36, weight: .medium))
-                        .foregroundStyle(brightness > 0.3 ? Color.black.opacity(0.8) : Chrome.legend)
-                } else if let label {
-                    Text(label)
-                        .font(.system(size: diameter * 0.4, weight: .semibold, design: .rounded))
-                        .foregroundStyle(brightness > 0.3 ? Color.black.opacity(0.8) : Chrome.legend)
+                // Face stays dark — on the hardware only the glyph is backlit.
+                RoundButton(diameter: diameter, lit: 0, pressed: pressed)
+                Group {
+                    if let systemImage {
+                        Image(systemName: systemImage)
+                            .font(.system(size: diameter * 0.36, weight: .medium))
+                    } else if let label {
+                        Text(label)
+                            .font(.system(size: diameter * 0.4, weight: .semibold, design: .rounded))
+                    }
                 }
+                .foregroundStyle(brightness > 0.02
+                                 ? litColor.opacity(0.35 + 0.65 * brightness)
+                                 : Chrome.legend)
+                .shadow(color: litColor.opacity(0.9 * brightness),
+                        radius: diameter * 0.14 * brightness)
             }
         }
     }

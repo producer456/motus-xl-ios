@@ -38,17 +38,24 @@ struct PanelView: View {
     /// The bare theme drops all of it — controls float on the iPad's glass.
     @ViewBuilder
     private func chassis(scale s: CGFloat) -> some View {
+        let base = client.chassisColor
+        let shell = Color(red: base.x, green: base.y, blue: base.z)
+        let light = Color(red: min(1, base.x * 1.22), green: min(1, base.y * 1.22),
+                          blue: min(1, base.z * 1.22))
+        let edge = Color(red: base.x * 0.55, green: base.y * 0.55, blue: base.z * 0.55)
+        let rim = Color(red: min(1, base.x * 2.2 + 0.08), green: min(1, base.y * 2.2 + 0.08),
+                        blue: min(1, base.z * 2.2 + 0.08))
         Group {
-            // Body shell — matte black with a faint top-light sheen.
+            // Body shell — matte, user-tinted, faint top-light sheen.
             RoundedRectangle(cornerRadius: 26 * s)
                 .fill(
-                    LinearGradient(colors: [Color(white: 0.105), Chrome.body, Chrome.bodyEdge],
+                    LinearGradient(colors: [light, shell, edge],
                                    startPoint: .top, endPoint: .bottom)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 26 * s)
                         .strokeBorder(
-                            LinearGradient(colors: [Color(white: 0.24), Chrome.bodyEdge],
+                            LinearGradient(colors: [rim, edge],
                                            startPoint: .top, endPoint: .bottom),
                             lineWidth: 1.5 * s)
                 )
@@ -125,7 +132,11 @@ struct PanelView: View {
             EncoderView(index: 8, diameter: 48 * s) // volume
                 .position(x: 966 * s, y: 54 * s)
 
-            // ---- Left rail: wheel, back / mode ----
+            // ---- Left rail: wheel steppers, wheel, back / mode ----
+            FunctionButton(id: "wheelUp", systemImage: "chevron.up", diameter: 30 * s)
+                .position(x: 50 * s, y: 152 * s)
+            FunctionButton(id: "wheelDown", systemImage: "chevron.down", diameter: 30 * s)
+                .position(x: 94 * s, y: 152 * s)
             WheelView(diameter: 88 * s)
                 .position(x: 72 * s, y: 220 * s)
 
@@ -136,7 +147,7 @@ struct PanelView: View {
 
             // ---- 8 track buttons, one per pad row ----
             ForEach(0..<8, id: \.self) { index in
-                TrackButton(index: index, size: CGSize(width: 18 * s, height: 30 * s))
+                TrackButton(index: index, size: CGSize(width: 18 * s, height: 52 * s))
                     .position(x: 158 * s, y: padRowY(index) * s)
             }
 

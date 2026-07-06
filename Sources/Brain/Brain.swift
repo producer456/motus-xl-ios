@@ -13,6 +13,23 @@ final class Brain: ObservableObject {
     @Published var ccLeds: [Int: Int] = [:]
     /// Bare theme: no chassis — controls float on the iPad's own glass.
     @Published var bareTheme = UserDefaults.standard.bool(forKey: "theme.bare")
+    /// Hardware-theme chassis color (palette index, persisted).
+    @Published var chassisColorIndex = UserDefaults.standard.integer(forKey: "theme.color")
+    private var setupEditingTheme = true
+
+    static let chassisColors: [(name: String, rgb: SIMD3<Double>)] = [
+        ("BLACK",    SIMD3(0.095, 0.095, 0.102)),
+        ("GRAPHITE", SIMD3(0.155, 0.155, 0.165)),
+        ("SLATE",    SIMD3(0.115, 0.130, 0.165)),
+        ("ESPRESSO", SIMD3(0.150, 0.115, 0.095)),
+        ("OLIVE",    SIMD3(0.120, 0.135, 0.100)),
+        ("OXBLOOD",  SIMD3(0.165, 0.095, 0.105)),
+        ("SAND",     SIMD3(0.420, 0.395, 0.350)),
+    ]
+    var chassisColor: SIMD3<Double> {
+        Self.chassisColors[((chassisColorIndex % Self.chassisColors.count)
+                            + Self.chassisColors.count) % Self.chassisColors.count].rgb
+    }
 
     let engine = AudioEngine()
 
@@ -52,6 +69,8 @@ final class Brain: ObservableObject {
 
     // Held modifiers
     private var shiftHeld = false
+    private var shiftLocked = false
+    private var lastShiftTap: Date?
     private var muteHeld = false
     private var deleteHeld = false
     private var copyHeld = false
@@ -636,7 +655,23 @@ final class Brain: ObservableObject {
 
     func button(_ id: String, down: Bool) {
         switch id {
-        case "shift": shiftHeld = down
+        case "shift":
+            if down {
+                if shiftLocked {
+                    shiftLocked = false
+                    shiftHeld = false
+                    showOverlay("SHIFT", 0, "UNLOCKED")
+                } else {
+                    shiftHeld = true
+                    if let tap = lastShiftTap, Date().timeIntervalSince(tap) < 0.4 {
+                        shiftLocked = true
+                        showOverlay("SHIFT", 1, "LOCKED")
+                    }
+                    lastShiftTap = Date()
+                }
+            } else if !shiftLocked {
+                shiftHeld = false
+            }
         case "mute": muteHeld = down
         case "delete": deleteHeld = down
         case "copy": copyHeld = down
@@ -677,6 +712,10 @@ final class Brain: ObservableObject {
             if down { octave(-1) }
         case "plus":
             if down { octave(1) }
+        case "wheelUp":
+            if down { wheel(delta: 1) }
+        case "wheelDown":
+            if down { wheel(delta: -1) }
         case "wheelPress":
             if down { wheelPress() }
         default:
@@ -940,6 +979,8 @@ final class Brain: ObservableObject {
             engine.setMetronome(metronomeOn)
         case .workflow:
             workflowEditingCountIn.toggle()
+        case .setup:
+            setupEditingTheme.toggle()
         default:
             menu = .none
         }
@@ -1019,8 +1060,14 @@ final class Brain: ObservableObject {
             // Main screen: wheel nudges tempo (like grabbing it quickly).
             adjust { $0.tempo = min(240, max(40, $0.tempo + Double(delta))) }
         case .setup:
-            bareTheme.toggle()
-            UserDefaults.standard.set(bareTheme, forKey: "theme.bare")
+            if setupEditingTheme {
+                bareTheme.toggle()
+                UserDefaults.standard.set(bareTheme, forKey: "theme.bare")
+            } else {
+                let count = Self.chassisColors.count
+                chassisColorIndex = ((chassisColorIndex + delta) % count + count) % count
+                UserDefaults.standard.set(chassisColorIndex, forKey: "theme.color")
+            }
             refresh()
         case .metronome, .message:
             break
@@ -1279,6 +1326,7 @@ final class Brain: ObservableObject {
     func releaseModifiers() {
         clearEntryState()
         shiftHeld = false
+        shiftLocked = false
         muteHeld = false
         deleteHeld = false
         copyHeld = false
@@ -1363,13 +1411,15 @@ final class Brain: ObservableObject {
             s.text("AUTOLOAD  \(autoloadOn ? "ON" : "OFF")", x: 12, y: 68, size: 2, invert: !workflowEditingCountIn)
             s.textCentered("TURN=SET PRESS=SWAP", y: 106)
         case .setup:
-            s.text("SETUP", x: 8, y: 8)
-            s.text("MOTUS XL", x: 8, y: 30, size: 2)
-            s.text("8 TRACKS - 256X128 OLED", x: 8, y: 56)
-            s.text("\(DrumKits.names.count) KITS LOADED", x: 8, y: 70)
-            s.fillRect(4, 86, 248, 22)
-            s.text("THEME  \(bareTheme ? "BARE" : "HARDWARE")", x: 12, y: 92, size: 2, invert: true)
-            s.textCentered("TURN WHEEL TO SWITCH", y: 116)
+            s.text("SETUP - MOTUS XL", x: 8, y: 8)
+            s.text("\(DrumKits.names.count) KITS - 8 TRACKS", x: 8, y: 24)
+            let colorName = Self.chassisColors[((chassisColorIndex % Self.chassisColors.count)
+                + Self.chassisColors.count) % Self.chassisColors.count].name
+            if setupEditingTheme { s.fillRect(4, 44, 248, 22) }
+            s.text("THEME  \(bareTheme ? "BARE" : "HARDWARE")", x: 12, y: 50, size: 2, invert: setupEditingTheme)
+            if !setupEditingTheme { s.fillRect(4, 70, 248, 22) }
+            s.text("COLOR  \(colorName)", x: 12, y: 76, size: 2, invert: !setupEditingTheme)
+            s.textCentered("TURN=SET PRESS=SWAP", y: 108)
         case .message(let msg):
             s.textCentered(msg, y: 56, size: 2)
         case .none:
@@ -1647,7 +1697,7 @@ final class Brain: ObservableObject {
         ccs[Self.buttonCC["play"]!] = engine.isPlaying ? 127 : 24
         ccs[Self.buttonCC["record"]!] = recording ? 127 : 24
         ccs[Self.buttonCC["note"]!] = 60
-        ccs[Self.buttonCC["shift"]!] = shiftHeld ? 127 : 24
+        ccs[Self.buttonCC["shift"]!] = shiftLocked ? 127 : (shiftHeld ? 100 : 24)
         ccs[Self.buttonCC["mute"]!] = muteHeld ? 127 : 24
         ccs[Self.buttonCC["delete"]!] = deleteHeld ? 127 : 24
         ccs[Self.buttonCC["copy"]!] = copyHeld ? 127 : 24

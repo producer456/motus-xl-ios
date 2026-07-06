@@ -27,6 +27,7 @@ final class Brain: ObservableObject {
 
     enum Menu: Equatable {
         case none, tempo, groove, metronome, scale, browser, setup, loopLength, workflow
+        case auPresets
         case message(String)
     }
     private var menu = Menu.none
@@ -41,6 +42,8 @@ final class Brain: ObservableObject {
     /// AU parameter bank per track (7 params per bank on encoders 2-8;
     /// encoder 1 = track volume, AUSeq-style). Shift+wheel press cycles.
     private var auParamBank: [Int: Int] = [:]
+    /// Preset active when the AU preset browser opened (Back = rollback).
+    private var auPresetOriginal: AUAudioUnitPreset?
 
     // Held modifiers
     private var shiftHeld = false
@@ -170,6 +173,7 @@ final class Brain: ObservableObject {
                 edit { song in
                     song.tracks[trackIndex].auIdentifier = id
                     song.tracks[trackIndex].auName = name
+                    song.tracks[trackIndex].auPresetName = nil
                 }
                 showOverlay("LOADED", 1, String(name.prefix(20)))
             } catch {
@@ -184,9 +188,14 @@ final class Brain: ObservableObject {
         for (t, tr) in song.tracks.enumerated() {
             if let id = tr.auIdentifier, let desc = Self.auDescription(from: id) {
                 let volume = Float(tr.volume)
+                let presetName = tr.auPresetName
                 Task { @MainActor in
                     if let name = try? await engine.installAU(track: t, description: desc) {
                         engine.setAUVolume(track: t, volume: volume)
+                        if let presetName,
+                           let preset = engine.auPresets(track: t).first(where: { $0.name == presetName }) {
+                            engine.setAUPreset(track: t, preset: preset)
+                        }
                         adjust { $0.tracks[t].auName = name }
                     } else {
                         engine.removeAU(track: t)
@@ -691,6 +700,10 @@ final class Brain: ObservableObject {
 
     private func backButton() {
         copiedClip = nil
+        if menu == .auPresets, let original = auPresetOriginal {
+            engine.setAUPreset(track: song.selectedTrack, preset: original)
+            auPresetOriginal = nil
+        }
         if menu != .none {
             cancelBrowserPreview()
             menu = .none
@@ -830,6 +843,14 @@ final class Brain: ObservableObject {
         }
         switch menu {
         case .none:
+            if engine.hasAU(track: song.selectedTrack) {
+                // Move behavior: wheel press on a device opens its presets.
+                auPresetOriginal = engine.currentAUPreset(track: song.selectedTrack)
+                let presets = engine.auPresets(track: song.selectedTrack)
+                browserIndex = (presets.firstIndex { $0.name == track.auPresetName } ?? -1) + 1
+                menu = .auPresets
+                break
+            }
             browserIndex = track.soundIndex
             browserOriginalSound = track.soundIndex
             menu = .browser
@@ -855,6 +876,26 @@ final class Brain: ObservableObject {
                     song.tracks[song.selectedTrack].auName = nil
                 }
                 if track.kind == .drum { loadKit(track: song.selectedTrack, index: chosen) }
+            }
+        case .auPresets:
+            let t = song.selectedTrack
+            let presets = engine.auPresets(track: t)
+            let count = presets.count + 1
+            let chosen = ((browserIndex % count) + count) % count
+            menu = .none
+            if chosen == 0 {
+                // "< CHANGE SOUND": fall through to the instrument browser.
+                if let original = auPresetOriginal { engine.setAUPreset(track: t, preset: original) }
+                auPresetOriginal = nil
+                browserIndex = track.soundIndex
+                browserOriginalSound = track.soundIndex
+                menu = .browser
+            } else {
+                let preset = presets[chosen - 1]
+                engine.setAUPreset(track: t, preset: preset)
+                auPresetOriginal = nil
+                edit { $0.tracks[t].auPresetName = preset.name }
+                showOverlay("PRESET", 1, String(preset.name.prefix(20)))
             }
         case .scale:
             scaleEditingRoot.toggle()
@@ -882,6 +923,14 @@ final class Brain: ObservableObject {
             adjust { $0.tempo = min(240, max(40, $0.tempo + (shiftHeld ? 0.1 : 1) * Double(delta))) }
         case .groove:
             adjust { $0.swing = min(1, max(0, $0.swing + Double(delta) * 0.02)) }
+        case .auPresets:
+            browserIndex += delta
+            let t = song.selectedTrack
+            let presets = engine.auPresets(track: t)
+            let count = presets.count + 1
+            let sel = ((browserIndex % count) + count) % count
+            if sel > 0 { engine.setAUPreset(track: t, preset: presets[sel - 1]) } // live preview
+            refresh()
         case .browser:
             browserIndex += delta
             // Autoload (manual 13.3): preview the highlighted sound immediately
@@ -1249,6 +1298,17 @@ final class Brain: ObservableObject {
                 if line == 0 { s.fillRect(0, y - 3, 256, 17) }
                 s.text(names[i], x: 8, y: y, size: line == 0 ? 2 : 1, invert: line == 0)
             }
+        case .auPresets:
+            s.text("AU PRESETS", x: 8, y: 4)
+            let names = ["< CHANGE SOUND"] + engine.auPresets(track: song.selectedTrack).map(\.name)
+            let sel = ((browserIndex % names.count) + names.count) % names.count
+            for line in -2...2 {
+                let i = ((sel + line) % names.count + names.count) % names.count
+                let y = 34 + (line + 2) * 18
+                if line == 0 { s.fillRect(0, y - 3, 256, 17) }
+                s.text(String(names[i].prefix(21)), x: 8, y: y,
+                       size: line == 0 ? 2 : 1, invert: line == 0)
+            }
         case .loopLength:
             s.text("LOOP LENGTH", x: 8, y: 8)
             s.textCentered("\(track.clips[song.selectedScene].bars) BAR\(track.clips[song.selectedScene].bars > 1 ? "S" : "")", y: 46, size: 4)
@@ -1335,6 +1395,9 @@ final class Brain: ObservableObject {
             ? (DrumKits.names.indices.contains(track.soundIndex) ? DrumKits.names[track.soundIndex] : "KIT")
             : SynthPreset.all[track.soundIndex % SynthPreset.all.count].name)
         s.text("T\(song.selectedTrack + 1)", x: 4, y: 68)
+        if let presetName = track.auPresetName {
+            s.text(String(presetName.prefix(16)), x: 40, y: 68)
+        }
         s.text(String(soundName.prefix(20)), x: 4, y: 80, size: 2)
         if engine.hasAU(track: song.selectedTrack) {
             // Knob map: E1 = VOL, E2-E8 = the active parameter bank.

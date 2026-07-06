@@ -38,6 +38,7 @@ struct Track: Codable, Equatable {
     /// values, decimal). nil = internal synth. Optional so old sets decode.
     var auIdentifier: String?
     var auName: String?
+    var auPresetName: String?
     var volume: Double = 0.8
     var muted = false
     var clips: [Clip] = Array(repeating: Clip(), count: 8)   // 8 scenes

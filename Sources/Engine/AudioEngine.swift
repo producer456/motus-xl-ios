@@ -212,6 +212,23 @@ final class AudioEngine {
         auMixers[track]?.outputVolume = volume
     }
 
+    /// User presets first, then factory. Key by array index — AU preset
+    /// .number values repeat across banks on some vendors.
+    func auPresets(track: Int) -> [AUAudioUnitPreset] {
+        guard let au = auUnits[track]?.auAudioUnit else { return [] }
+        let user = au.supportsUserPresets ? au.userPresets : []
+        return user + (au.factoryPresets ?? [])
+    }
+
+    @MainActor
+    func setAUPreset(track: Int, preset: AUAudioUnitPreset) {
+        auUnits[track]?.auAudioUnit.currentPreset = preset
+    }
+
+    func currentAUPreset(track: Int) -> AUAudioUnitPreset? {
+        auUnits[track]?.auAudioUnit.currentPreset
+    }
+
     // MARK: - Render
 
     private func render(frameCount: Int, abl: UnsafeMutablePointer<AudioBufferList>) {

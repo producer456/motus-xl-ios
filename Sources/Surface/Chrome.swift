@@ -115,24 +115,26 @@ struct RoundButton: View {
 
     var body: some View {
         ZStack {
-            // Extruded cap: lit top face falling to a shadowed base.
+            // Recessed cap (like the hardware): the deck's lip shadows the
+            // top of the cavity, light catches the bottom.
             Circle()
                 .fill(
-                    LinearGradient(colors: [Color(white: 0.155), Chrome.buttonFace,
-                                            Color(white: 0.085)],
+                    LinearGradient(colors: [Color(white: 0.075), Chrome.buttonFace,
+                                            Color(white: 0.145)],
                                    startPoint: .top, endPoint: .bottom)
                 )
             Circle()
                 .strokeBorder(
-                    LinearGradient(colors: [Color(white: 0.34), Color(white: 0.08)],
+                    LinearGradient(colors: [Color.black.opacity(0.85), Color(white: 0.30)],
                                    startPoint: .top, endPoint: .bottom),
-                    lineWidth: max(0.8, diameter * 0.045)
+                    lineWidth: max(0.8, diameter * 0.05)
                 )
-            // Crisp highlight along the top edge of the cap.
+            // Inner shadow cast by the top lip of the recess.
             Circle()
                 .trim(from: 0.56, to: 0.94)
-                .stroke(Color.white.opacity(0.10), lineWidth: max(0.7, diameter * 0.03))
-                .padding(diameter * 0.055)
+                .stroke(Color.black.opacity(0.35), lineWidth: max(1, diameter * 0.06))
+                .padding(diameter * 0.035)
+                .blur(radius: diameter * 0.03)
             if lit > 0.02 {
                 // Subtle light bleed onto the deck — soft falloff only, the
                 // surface itself never lights.
@@ -153,8 +155,10 @@ struct RoundButton: View {
             }
         }
         .frame(width: diameter, height: diameter)
-        .scaleEffect(pressed ? 0.94 : 1)
-        .shadow(color: .black.opacity(0.5), radius: diameter * 0.06, y: diameter * 0.04)
+        .scaleEffect(pressed ? 0.965 : 1)
+        // Recessed: no drop shadow — just a hint of deck light on the
+        // cavity's lower rim.
+        .shadow(color: .white.opacity(0.06), radius: 0.6, y: diameter * 0.02)
     }
 }
 

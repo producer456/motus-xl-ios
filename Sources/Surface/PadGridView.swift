@@ -31,8 +31,10 @@ final class PadGridUIView: UIView {
     private var lastColors: [Int: SIMD3<Double>] = [:]
     private var lastChannels: [Int: Int] = [:]
 
-    // Unlit silicone: warm light gray, not paper white.
-    private static let unlitColor = UIColor(red: 0.92, green: 0.915, blue: 0.895, alpha: 1)
+    // Unlit silicone: matte mid-gray. The pads are physically white, but on
+    // an emissive display a bright fill reads as "lit white" — unpowered
+    // rubber under panel lighting has to sit much darker.
+    private static let unlitColor = UIColor(red: 0.62, green: 0.615, blue: 0.60, alpha: 1)
 
     override init(frame: CGRect) {
         super.init(frame: frame)

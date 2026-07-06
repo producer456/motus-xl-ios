@@ -14,7 +14,7 @@ struct Note: Codable, Equatable {
 }
 
 struct Clip: Codable, Equatable {
-    var bars: Int = 1                   // content END, in bars (1...8)
+    var bars: Int = 1                   // content END, in bars (1...16)
     var notes: [Note] = []
     /// Loop START bar (manual 12.1: press start+end steps in Loop Mode).
     /// Notes before it stay in the clip but don't play. Optional so old

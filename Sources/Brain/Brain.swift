@@ -118,6 +118,9 @@ final class Brain: ObservableObject {
     private var captureOpen: [Int: Int] = [:]  // track*1000+key -> buffer index
 
     private var recording = false
+    /// Recording began into an empty clip: it grows under the playhead
+    /// instead of wrapping (manual: extending recording), up to 16 bars.
+    private var recordExtendTarget: (track: Int, scene: Int)?
     private var fullVelocity = false
     private var metronomeOn = false
     private var mainVolume: Double = 0.85
@@ -445,7 +448,14 @@ final class Brain: ObservableObject {
 
     private func recordHit(key: Int, velocity: Int) {
         guard recording, engine.isPlaying, !engine.inCountIn else { return }
-        let clip = track.clips[song.selectedScene]
+        var clip = track.clips[song.selectedScene]
+        // Extending record: an empty clip grows under the playhead (whole
+        // bars) rather than wrapping, until Record stops or the 16-bar cap.
+        if let target = recordExtendTarget,
+           target == (song.selectedTrack, song.selectedScene) {
+            let needed = min(16, Int(engine.currentStep) / 16 + 1)
+            if needed > clip.bars { clip.bars = needed }
+        }
         // Hardware-default quantize (manual 13.1): pull the hit `amount` of
         // the way to the nearest 1/16, keeping the rest as a fractional
         // offset. The engine suppresses re-firing just-played notes, so
@@ -458,6 +468,7 @@ final class Brain: ObservableObject {
         pendingRecordings[key] = (step, pos)
         edit { song in
             var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
+            c.bars = max(c.bars, clip.bars)
             c.notes.removeAll { $0.step == step && $0.key == key }
             c.notes.append(Note(step: step, key: key, velocity: velocity,
                                 lengthSteps: 1, offset: off))
@@ -598,7 +609,6 @@ final class Brain: ObservableObject {
             // together (or hold start, press end) to set the loop region;
             // double-press = loop that single bar; brief press selects it.
             if menu == .loopLength {
-                guard index < 8 else { return }
                 if let anchor = loopModeHeld.first(where: { $0 != index }) {
                     setLoopRegion(start: min(anchor, index), endBar: max(anchor, index) + 1)
                     loopModeEdited = true
@@ -614,7 +624,7 @@ final class Brain: ObservableObject {
             let clip = track.clips[song.selectedScene]
             let step = barPage * 16 + index
             // Adding notes to the empty extra bar extends the loop (12.1).
-            let extendsBar = step >= clip.steps && barPage >= clip.bars && clip.bars < 8
+            let extendsBar = step >= clip.steps && barPage >= clip.bars && clip.bars < 16
             guard step < clip.steps || extendsBar else { return }
             heldSteps.insert(index)
             if deleteHeld {
@@ -705,13 +715,13 @@ final class Brain: ObservableObject {
                 let limit = endBar * 16
                 c.notes.removeAll { $0.step >= limit }
             }
-            c.bars = min(8, max(1, endBar))
+            c.bars = min(16, max(1, endBar))
             c.loopStart = start > 0 ? start : nil
             song.tracks[song.selectedTrack].clips[song.selectedScene] = c
         }
         barPage = min(max(barPage, start), endBar - 1)
         let length = endBar - start
-        showOverlay("LOOP \(start + 1)-\(endBar)", Double(endBar) / 8,
+        showOverlay("LOOP \(start + 1)-\(endBar)", Double(endBar) / 16,
                     "\(length) BAR\(length > 1 ? "S" : "")")
     }
 
@@ -775,7 +785,7 @@ final class Brain: ObservableObject {
             fullVelocity.toggle()
             showOverlay("FULL VELOCITY", fullVelocity ? 1 : 0, fullVelocity ? "ON" : "OFF")
         case 14: // double loop (pre-check so a no-op doesn't pollute undo)
-            guard track.clips[song.selectedScene].bars * 2 <= 8 else { break }
+            guard track.clips[song.selectedScene].bars * 2 <= 16 else { break }
             edit { song in
                 var clip = song.tracks[song.selectedTrack].clips[song.selectedScene]
                 let old = clip.notes
@@ -950,6 +960,13 @@ final class Brain: ObservableObject {
         } else {
             if menu == .browser { cancelBrowserPreview(); menu = .none } // stale list would commit a random sound
             clearEntryState()
+            if recording, index != song.selectedTrack {
+                // Manual: switching tracks ends the recording pass.
+                recording = false
+                engine.setRecordingActive(false)
+                pendingRecordings.removeAll()
+                recordExtendTarget = nil
+            }
             adjust { $0.selectedTrack = index }
             barPage = 0
             if mode == .setOverview { mode = .note }
@@ -962,6 +979,7 @@ final class Brain: ObservableObject {
             recording = false
             engine.setRecordingActive(false)
             pendingRecordings.removeAll()
+            recordExtendTarget = nil
         } else {
             purgeGridCapture()
             engine.setTransport(playing: true, fromStart: true)
@@ -974,8 +992,12 @@ final class Brain: ObservableObject {
             recording.toggle()
             engine.setRecordingActive(recording)
             if !recording { pendingRecordings.removeAll() }
+            recordExtendTarget = recording && track.clips[song.selectedScene].isEmpty
+                ? (song.selectedTrack, song.selectedScene) : nil
         } else {
             recording = true
+            recordExtendTarget = track.clips[song.selectedScene].isEmpty
+                ? (song.selectedTrack, song.selectedScene) : nil
             engine.setRecordingActive(true)
             purgeGridCapture()
             // Count-in (manual 13.3): one bar of clicks before sequencing starts.
@@ -1035,9 +1057,9 @@ final class Brain: ObservableObject {
         // track buttons' job. One page past the end shows an empty bar; it
         // joins the loop if you add notes to it.
         let bars = track.clips[song.selectedScene].bars
-        let maxPage = bars < 8 ? bars : bars - 1
+        let maxPage = bars < 16 ? bars : bars - 1
         barPage = min(maxPage, max(0, barPage + direction))
-        showOverlay("BAR \(barPage + 1)", Double(barPage + 1) / 8,
+        showOverlay("BAR \(barPage + 1)", Double(barPage + 1) / 16,
                     barPage >= bars ? "EMPTY: ADD TO KEEP" : "OF \(bars)")
     }
 
@@ -1336,7 +1358,7 @@ final class Brain: ObservableObject {
             let clip0 = track.clips[song.selectedScene]
             let bars = clip0.bars
             let minBars = (clip0.loopStart ?? 0) + 1
-            let newBars = max(minBars, min(8, bars + delta))
+            let newBars = max(minBars, min(16, bars + delta))
             guard newBars != bars else { break } // no-op detent: skip undo push
             edit { song in
                 var clip = song.tracks[song.selectedTrack].clips[song.selectedScene]
@@ -1550,9 +1572,14 @@ final class Brain: ObservableObject {
                 let cutoff = Date.timeIntervalSinceReferenceDate - 16
                 let phrase = captureBuffer.filter { !$0.onGrid && $0.start >= cutoff }
                 guard let t0 = phrase.map(\.start).min() else { return }
+                // Tempo detection: treat the median gap between onsets as a
+                // 16th note and fold the implied tempo into a musical range.
+                if let bpm = Self.detectTempo(onsets: phrase.map(\.start).sorted()) {
+                    song.tempo = bpm
+                }
                 let stepsPerSecond = song.tempo / 60 * 4
                 let maxStep = phrase.map { (($0.start - t0) * stepsPerSecond).rounded() }.max() ?? 0
-                let bars = min(8, max(1, Int(maxStep) / 16 + 1))
+                let bars = min(16, max(1, Int(maxStep) / 16 + 1))
                 for note in phrase {
                     guard song.tracks.indices.contains(note.track) else { continue }
                     var clip = song.tracks[note.track].clips[song.selectedScene]
@@ -1576,6 +1603,23 @@ final class Brain: ObservableObject {
         captureOpen.removeAll()
         if !wasPlaying { engine.setTransport(playing: true, fromStart: true) }
         showOverlay("CAPTURED", 1, "\(involved.count) TRACK\(involved.count > 1 ? "S" : "")")
+    }
+
+    /// Median inter-onset interval read as a 16th note, folded into
+    /// 70-180 BPM. Needs a few hits to say anything.
+    private static func detectTempo(onsets: [Double]) -> Double? {
+        guard onsets.count >= 4 else { return nil }
+        var gaps: [Double] = []
+        for i in 1..<onsets.count {
+            let gap = onsets[i] - onsets[i - 1]
+            if gap > 0.08, gap < 3 { gaps.append(gap) }
+        }
+        guard gaps.count >= 3 else { return nil }
+        let median = gaps.sorted()[gaps.count / 2]
+        var bpm = 15.0 / median
+        while bpm > 180 { bpm /= 2 }
+        while bpm < 70 { bpm *= 2 }
+        return bpm.rounded()
     }
 
     // MARK: - Undo / persistence
@@ -1665,7 +1709,7 @@ final class Brain: ObservableObject {
         guard poweredOn else { return }
         // barPage can go stale via scene changes, loop shrink, set load, undo.
         // Allow one page past the end: the manual's "empty bar" you can fill.
-        barPage = min(barPage, min(track.clips[song.selectedScene].bars, 7))
+        barPage = min(barPage, min(track.clips[song.selectedScene].bars, 15))
         refreshScreen()
         refreshLeds()
     }
@@ -1865,7 +1909,7 @@ final class Brain: ObservableObject {
         // Loop-length lines with playhead tick (manual 12.1).
         let bars = clip.bars
         let loopFrom = clip.loopStartStep / 16
-        let slots = min(8, bars + (bars < 8 ? 1 : 0))
+        let slots = min(16, bars + (bars < 16 ? 1 : 0))
         let slotW = 216 / slots
         for b in 0..<slots {
             let x = b * slotW + 2
@@ -2084,7 +2128,7 @@ final class Brain: ObservableObject {
         ccs[Self.buttonCC["loop"]!] = menu == .loopLength ? 127 : 24
         ccs[Self.buttonCC["back"]!] = (menu != .none || mode == .setOverview) ? 60 : 12
         let bars = track.clips[song.selectedScene].bars
-        let maxPage = bars < 8 ? bars : bars - 1
+        let maxPage = bars < 16 ? bars : bars - 1
         ccs[Self.buttonCC["left"]!] = (barPage > 0 || !heldSteps.isEmpty) ? 40 : 8
         ccs[Self.buttonCC["right"]!] = (barPage < maxPage || !heldSteps.isEmpty) ? 40 : 8
         ccs[Self.buttonCC["minus"]!] = track.kind == .synth ? 40 : 8

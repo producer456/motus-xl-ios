@@ -54,7 +54,11 @@ final class Brain: ObservableObject {
     // Workflow settings (manual ch 13) — device settings, persisted outside the song.
     private var countInOn = UserDefaults.standard.bool(forKey: "wf.countIn")
     private var autoloadOn = UserDefaults.standard.bool(forKey: "wf.autoload")
-    private var workflowEditingCountIn = true
+    private var workflowRow = 0   // 0 quantize, 1 count-in, 2 autoload
+    /// Record-quantize amount, hardware default 50% (manual 13.1): notes are
+    /// pulled halfway to the nearest 1/16 — tight but human.
+    private var quantizePercent = UserDefaults.standard.object(forKey: "wf.quantize") == nil
+        ? 50 : UserDefaults.standard.integer(forKey: "wf.quantize")
     private var browserOriginalSound: Int?   // autoload preview rollback
     /// AU parameter bank per track (7 params per bank on encoders 2-8;
     /// encoder 1 = track volume, AUSeq-style). Shift+wheel press cycles.
@@ -361,19 +365,39 @@ final class Brain: ObservableObject {
     /// write the real note length.
     private var pendingRecordings: [Int: (step: Int, startPos: Double)] = [:]
 
+    /// Pull an exact (fractional) step position `amount` of the way to the
+    /// nearest grid line, wrapped into `region` steps starting at `start`.
+    /// Returns the note's floor step + fractional offset.
+    private func quantized(_ exact: Double, start: Int, region: Int) -> (step: Int, offset: Double?) {
+        let amount = Double(quantizePercent) / 100
+        let nearest = exact.rounded()
+        var q = exact + (nearest - exact) * amount
+        let end = Double(start + region)
+        if q >= end { q -= Double(region) }
+        if q < Double(start) { q = Double(start) }
+        let step = Int(q)
+        let off = q - Double(step)
+        return (step, off < 0.02 || off > 0.98 ? nil : off)
+    }
+
     private func recordHit(key: Int, velocity: Int) {
         guard recording, engine.isPlaying, !engine.inCountIn else { return }
         let clip = track.clips[song.selectedScene]
-        // Floor-quantize into the CURRENT step (which already fired) — nearest-
-        // rounding wrote hits into the upcoming step, which the sequencer then
-        // re-fired ~50ms later: an audible flam on almost every recorded note.
+        // Hardware-default quantize (manual 13.1): pull the hit `amount` of
+        // the way to the nearest 1/16, keeping the rest as a fractional
+        // offset. The engine suppresses re-firing just-played notes, so
+        // forward pulls can't flam against the live hit.
         let pos = engine.currentStep
-        let step = clip.localStep(Int(pos))
+        let region = clip.loopSteps
+        let localExact = Double(clip.loopStartStep)
+            + pos.truncatingRemainder(dividingBy: Double(region))
+        let (step, off) = quantized(localExact, start: clip.loopStartStep, region: region)
         pendingRecordings[key] = (step, pos)
         edit { song in
             var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
             c.notes.removeAll { $0.step == step && $0.key == key }
-            c.notes.append(Note(step: step, key: key, velocity: velocity))
+            c.notes.append(Note(step: step, key: key, velocity: velocity,
+                                lengthSteps: 1, offset: off))
             song.tracks[song.selectedTrack].clips[song.selectedScene] = c
         }
     }
@@ -644,8 +668,23 @@ final class Brain: ObservableObject {
                 clip.bars *= 2
                 song.tracks[song.selectedTrack].clips[song.selectedScene] = clip
             }
-        case 15:
-            showOverlay("QUANTIZE", 1, "GRID 1/16")
+        case 15: // Quantize the clip (manual 11.7): apply the amount to notes.
+            edit { song in
+                var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
+                let amount = Double(quantizePercent) / 100
+                for i in c.notes.indices {
+                    let exact = Double(c.notes[i].step) + c.notes[i].off
+                    let nearest = exact.rounded()
+                    var q = exact + (nearest - exact) * amount
+                    if q >= Double(c.steps) { q -= Double(c.steps) }
+                    if q < 0 { q = 0 }
+                    c.notes[i].step = Int(q)
+                    let off = q - Double(Int(q))
+                    c.notes[i].offset = (off < 0.02 || off > 0.98) ? nil : off
+                }
+                song.tracks[song.selectedTrack].clips[song.selectedScene] = c
+            }
+            showOverlay("QUANTIZE", Double(quantizePercent) / 100, "\(quantizePercent)% APPLIED")
         default:
             break
         }
@@ -978,7 +1017,7 @@ final class Brain: ObservableObject {
             metronomeOn.toggle()
             engine.setMetronome(metronomeOn)
         case .workflow:
-            workflowEditingCountIn.toggle()
+            workflowRow = (workflowRow + 1) % 3
         case .setup:
             setupEditingTheme.toggle()
         default:
@@ -1024,11 +1063,14 @@ final class Brain: ObservableObject {
             }
             refresh()
         case .workflow:
-            // Wheel right = ON, left = OFF for the highlighted setting.
-            if workflowEditingCountIn {
+            switch workflowRow {
+            case 0:
+                quantizePercent = min(100, max(0, quantizePercent + delta * 5))
+                UserDefaults.standard.set(quantizePercent, forKey: "wf.quantize")
+            case 1:
                 countInOn = delta > 0
                 UserDefaults.standard.set(countInOn, forKey: "wf.countIn")
-            } else {
+            default:
                 autoloadOn = delta > 0
                 UserDefaults.standard.set(autoloadOn, forKey: "wf.autoload")
             }
@@ -1220,10 +1262,14 @@ final class Brain: ObservableObject {
                     guard song.tracks.indices.contains(note.track) else { continue }
                     var clip = song.tracks[note.track].clips[song.selectedScene]
                     guard note.start >= now - Double(clip.loopSteps) else { continue }
-                    let step = clip.localStep(Int(note.start.rounded()))
+                    let region = clip.loopSteps
+                    let localExact = Double(clip.loopStartStep)
+                        + note.start.truncatingRemainder(dividingBy: Double(region))
+                    let (step, off) = quantized(localExact, start: clip.loopStartStep, region: region)
                     clip.notes.removeAll { $0.step == step && $0.key == note.key }
                     clip.notes.append(Note(step: step, key: note.key, velocity: note.velocity,
-                                           lengthSteps: max(0.25, (note.length * 4).rounded() / 4)))
+                                           lengthSteps: max(0.25, (note.length * 4).rounded() / 4),
+                                           offset: off))
                     song.tracks[note.track].clips[song.selectedScene] = clip
                     involved.insert(note.track)
                 }
@@ -1239,11 +1285,13 @@ final class Brain: ObservableObject {
                     guard song.tracks.indices.contains(note.track) else { continue }
                     var clip = song.tracks[note.track].clips[song.selectedScene]
                     clip.bars = max(clip.bars, bars)
-                    let step = Int(((note.start - t0) * stepsPerSecond).rounded()) % clip.steps
+                    let exact = ((note.start - t0) * stepsPerSecond)
+                        .truncatingRemainder(dividingBy: Double(clip.steps))
+                    let (step, off) = quantized(exact, start: 0, region: clip.steps)
                     let length = max(0.25, ((note.length * stepsPerSecond) * 4).rounded() / 4)
                     clip.notes.removeAll { $0.step == step && $0.key == note.key }
                     clip.notes.append(Note(step: step, key: note.key, velocity: note.velocity,
-                                           lengthSteps: length))
+                                           lengthSteps: length, offset: off))
                     song.tracks[note.track].clips[song.selectedScene] = clip
                     involved.insert(note.track)
                 }
@@ -1405,10 +1453,14 @@ final class Brain: ObservableObject {
             s.textCentered("2 STEPS=REGION 2X=1BAR", y: 106)
         case .workflow:
             s.text("WORKFLOW", x: 8, y: 8)
-            if workflowEditingCountIn { s.fillRect(4, 34, 248, 24) }
-            s.text("COUNT-IN  \(countInOn ? "ON" : "OFF")", x: 12, y: 40, size: 2, invert: workflowEditingCountIn)
-            if !workflowEditingCountIn { s.fillRect(4, 62, 248, 24) }
-            s.text("AUTOLOAD  \(autoloadOn ? "ON" : "OFF")", x: 12, y: 68, size: 2, invert: !workflowEditingCountIn)
+            let rows = ["QUANTIZE  \(quantizePercent)%",
+                        "COUNT-IN  \(countInOn ? "ON" : "OFF")",
+                        "AUTOLOAD  \(autoloadOn ? "ON" : "OFF")"]
+            for (i, row) in rows.enumerated() {
+                let y = 30 + i * 26
+                if workflowRow == i { s.fillRect(4, y - 6, 248, 22) }
+                s.text(row, x: 12, y: y, size: 2, invert: workflowRow == i)
+            }
             s.textCentered("TURN=SET PRESS=SWAP", y: 106)
         case .setup:
             s.text("SETUP - MOTUS XL", x: 8, y: 8)

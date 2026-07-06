@@ -65,6 +65,20 @@ final class AudioEngine {
     /// Sequenced AU note-offs (schedule blocks can't queue future events).
     private struct PendingOff { var track: Int32 = -1; var key: UInt8 = 0; var frames: Int32 = 0 }
     private var pendingOffs = [PendingOff](repeating: PendingOff(), count: 256)
+    /// Just-played live notes: 50% record-quantize can write a note slightly
+    /// AHEAD of the playhead, which the sequencer would re-fire moments after
+    /// the finger hit — an audible flam. Suppress those for ~half a step.
+    private struct RecentLive { var track: Int32 = -1; var key: Int32 = 0; var at: Double = -1 }
+    private var recentLive = [RecentLive](repeating: RecentLive(), count: 64)
+    private var recentLiveIdx = 0
+
+    private func noteRecentlyPlayedLive(track: Int, key: Int) -> Bool {
+        for entry in recentLive where entry.track == Int32(track) && entry.key == Int32(key) {
+            let age = stepPos - entry.at
+            if age >= 0 && age < 0.6 { return true }
+        }
+        return false
+    }
 
     func start() {
         configureSession()
@@ -282,6 +296,11 @@ final class AudioEngine {
         for event in renderEvents {
             trigger(event, song: song, kits: kits, cutoff: cutoff, res: res,
                     attack: attack, release: release, auBlocks: au)
+            if event.on {
+                recentLive[recentLiveIdx] = RecentLive(track: Int32(event.track),
+                                                       key: Int32(event.key), at: stepPos)
+                recentLiveIdx = (recentLiveIdx + 1) % recentLive.count
+            }
         }
         renderEvents.removeAll(keepingCapacity: true) // uniquely owned here
 
@@ -298,6 +317,7 @@ final class AudioEngine {
                 let steps = Double(clip.loopSteps)
                 for note in clip.notes where note.off != 0 {
                     if track.kind == .drum && track.mutedCells.contains(note.key) { continue }
+                    if noteRecentlyPlayedLive(track: trackIndex, key: note.key) { continue }
                     let start = Double(note.step) + note.off - Double(clip.loopStartStep)
                     guard start >= 0 && start < steps else { continue } // outside the loop
                     // Does start (mod loop) fall inside this block's window?
@@ -426,6 +446,7 @@ final class AudioEngine {
             let localStep = clip.localStep(absStep)
             for note in clip.notes where note.step == localStep && note.off == 0 {
                 if track.kind == .drum && track.mutedCells.contains(note.key) { continue }
+                if noteRecentlyPlayedLive(track: trackIndex, key: note.key) { continue }
                 let lengthFrames = Int(note.lengthSteps * Self.sampleRate * 60 / max(20, song.tempo) / 4)
                 let started = trigger(LiveEvent(track: trackIndex, kind: track.kind, key: note.key,
                                                 velocity: note.velocity, on: true),

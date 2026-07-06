@@ -1,4 +1,41 @@
 import SwiftUI
+import UIKit
+
+/// Fine deterministic noise, tiled across the chassis — kills the
+/// "flat vector" look that betrays drawn hardware.
+enum Grain {
+    static let image: UIImage = {
+        let size = 128
+        var seed: UInt64 = 0x9E3779B97F4A7C15
+        var pixels = [UInt8](repeating: 0, count: size * size * 4)
+        for i in 0..<(size * size) {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            let v = UInt8((seed >> 33) & 0xFF)
+            let j = i * 4
+            pixels[j] = v; pixels[j + 1] = v; pixels[j + 2] = v; pixels[j + 3] = 255
+        }
+        let data = Data(pixels)
+        let provider = CGDataProvider(data: data as CFData)!
+        let cg = CGImage(width: size, height: size, bitsPerComponent: 8, bitsPerPixel: 32,
+                         bytesPerRow: size * 4, space: CGColorSpaceCreateDeviceRGB(),
+                         bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                         provider: provider, decode: nil, shouldInterpolate: false,
+                         intent: .defaultIntent)!
+        return UIImage(cgImage: cg)
+    }()
+}
+
+struct GrainOverlay: View {
+    var opacity: Double = 0.045
+
+    var body: some View {
+        Image(uiImage: Grain.image)
+            .resizable(resizingMode: .tile)
+            .opacity(opacity)
+            .blendMode(.overlay)
+            .allowsHitTesting(false)
+    }
+}
 
 /// Shared hardware-realism styling for the Move panel.
 enum Chrome {
@@ -31,6 +68,21 @@ struct KnobView: View {
                                    startPoint: .topLeading, endPoint: .bottomTrailing),
                     lineWidth: max(1, diameter * 0.03)
                 )
+            // Machined serration: radial grip ticks around the skirt.
+            Canvas { ctx, size in
+                let c = CGPoint(x: size.width / 2, y: size.height / 2)
+                let outer = size.width / 2 - 0.5
+                let inner = outer - size.width * 0.075
+                for i in 0..<36 {
+                    let a = Double(i) / 36 * 2 * .pi
+                    var path = Path()
+                    path.move(to: CGPoint(x: c.x + cos(a) * inner, y: c.y + sin(a) * inner))
+                    path.addLine(to: CGPoint(x: c.x + cos(a) * outer, y: c.y + sin(a) * outer))
+                    ctx.stroke(path, with: .color(.black.opacity(0.42)),
+                               lineWidth: max(0.6, size.width * 0.018))
+                }
+            }
+            .allowsHitTesting(false)
             // Top face, set in from the wall — reads as the flat rubber cap.
             Circle()
                 .fill(
@@ -63,13 +115,24 @@ struct RoundButton: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(Chrome.buttonFace)
+            // Extruded cap: lit top face falling to a shadowed base.
+            Circle()
+                .fill(
+                    LinearGradient(colors: [Color(white: 0.155), Chrome.buttonFace,
+                                            Color(white: 0.085)],
+                                   startPoint: .top, endPoint: .bottom)
+                )
             Circle()
                 .strokeBorder(
                     LinearGradient(colors: [Color(white: 0.34), Color(white: 0.08)],
                                    startPoint: .top, endPoint: .bottom),
                     lineWidth: max(0.8, diameter * 0.045)
                 )
+            // Crisp highlight along the top edge of the cap.
+            Circle()
+                .trim(from: 0.56, to: 0.94)
+                .stroke(Color.white.opacity(0.10), lineWidth: max(0.7, diameter * 0.03))
+                .padding(diameter * 0.055)
             if lit > 0.02 {
                 // Subtle light bleed onto the deck — soft falloff only, the
                 // surface itself never lights.

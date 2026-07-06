@@ -68,6 +68,10 @@ struct PanelView: View {
                 )
                 .shadow(color: .black.opacity(0.8), radius: 18 * s, y: 6 * s)
 
+            // Micro-grain so the deck reads as material, not vector fill.
+            GrainOverlay()
+                .clipShape(RoundedRectangle(cornerRadius: 26 * s))
+
             // Room light: a broad soft sheen that glides with device tilt.
             RadialGradient(colors: [Color.white.opacity(0.05), .clear],
                            center: .init(x: 0.5 - motion.tilt.x * 0.35,

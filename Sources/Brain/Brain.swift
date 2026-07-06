@@ -38,6 +38,9 @@ final class Brain: ObservableObject {
     private var autoloadOn = UserDefaults.standard.bool(forKey: "wf.autoload")
     private var workflowEditingCountIn = true
     private var browserOriginalSound: Int?   // autoload preview rollback
+    /// AU parameter bank per track (7 params per bank on encoders 2-8;
+    /// encoder 1 = track volume, AUSeq-style). Shift+wheel press cycles.
+    private var auParamBank: [Int: Int] = [:]
 
     // Held modifiers
     private var shiftHeld = false
@@ -161,6 +164,7 @@ final class Brain: ObservableObject {
         Task { @MainActor in
             do {
                 let name = try await engine.installAU(track: trackIndex, description: desc)
+                auParamBank[trackIndex] = 0
                 engine.setAUVolume(track: trackIndex,
                                    volume: Float(song.tracks[trackIndex].volume))
                 edit { song in
@@ -812,6 +816,18 @@ final class Brain: ObservableObject {
     }
 
     private func wheelPress() {
+        // Shift+wheel press: next AU parameter bank (manual: parameter banks).
+        if shiftHeld, menu == .none, engine.hasAU(track: song.selectedTrack) {
+            let t = song.selectedTrack
+            let total = engine.auParameters(track: t).count
+            let banks = max(1, (total + 6) / 7)
+            let bank = ((auParamBank[t] ?? 0) + 1) % banks
+            auParamBank[t] = bank
+            let first = bank * 7 + 1, last = min(total, bank * 7 + 7)
+            showOverlay("PARAM BANK \(bank + 1)/\(banks)",
+                        Double(bank + 1) / Double(banks), "\(first)-\(last) OF \(total)")
+            return
+        }
         switch menu {
         case .none:
             browserIndex = track.soundIndex
@@ -930,11 +946,20 @@ final class Brain: ObservableObject {
     func encoder(_ index: Int, delta: Int) {
         let d = Float(delta)
         let t = song.selectedTrack
-        // AU-hosted track: the first four encoders drive the AU's parameters.
-        if index < 4 && engine.hasAU(track: t) {
+        // AU-hosted track (AUSeq convention): encoder 1 = track volume,
+        // encoders 2-8 = the active 7-parameter bank.
+        if engine.hasAU(track: t) && index < 8 {
+            if index == 0 {
+                adjust { $0.tracks[t].volume = min(1, max(0, $0.tracks[t].volume + Double(d) * 0.02)) }
+                engine.setAUVolume(track: t, volume: Float(track.volume))
+                showOverlay("TRACK VOL", track.volume, String(format: "%.0f%%", track.volume * 100))
+                return
+            }
             let params = engine.auParameters(track: t)
-            guard params.indices.contains(index) else { return }
-            let param = params[index]
+            let bank = auParamBank[t] ?? 0
+            let pIdx = bank * 7 + (index - 1)
+            guard params.indices.contains(pIdx) else { return }
+            let param = params[pIdx]
             let span = param.maxValue - param.minValue
             let value = max(param.minValue,
                             min(param.maxValue, param.value + d * span / 64))
@@ -1311,10 +1336,27 @@ final class Brain: ObservableObject {
             : SynthPreset.all[track.soundIndex % SynthPreset.all.count].name)
         s.text("T\(song.selectedTrack + 1)", x: 4, y: 68)
         s.text(String(soundName.prefix(20)), x: 4, y: 80, size: 2)
-        let info = track.kind == .synth
-            ? "\(Scales.noteNames[song.rootNote]) \(Scales.all[song.scaleIndex].name)  OCT \(track.octave >= 0 ? "+" : "")\(track.octave)"
-            : "PAD \(track.selectedPad + 1)"
-        s.text(info, x: 4, y: 99)
+        if engine.hasAU(track: song.selectedTrack) {
+            // Knob map: E1 = VOL, E2-E8 = the active parameter bank.
+            let params = engine.auParameters(track: song.selectedTrack)
+            let bank = auParamBank[song.selectedTrack] ?? 0
+            var slots = ["VOL"]
+            for i in 0..<7 {
+                let pIdx = bank * 7 + i
+                slots.append(params.indices.contains(pIdx)
+                             ? String(params[pIdx].displayName.prefix(6)) : "-")
+            }
+            for (i, name) in slots.enumerated() {
+                s.text(name, x: 4 + (i % 4) * 64, y: 92 + (i / 4) * 9)
+            }
+            let banks = max(1, (params.count + 6) / 7)
+            if banks > 1 { s.text("B\(bank + 1)/\(banks)", x: 224, y: 68) }
+        } else {
+            let info = track.kind == .synth
+                ? "\(Scales.noteNames[song.rootNote]) \(Scales.all[song.scaleIndex].name)  OCT \(track.octave >= 0 ? "+" : "")\(track.octave)"
+                : "PAD \(track.selectedPad + 1)"
+            s.text(info, x: 4, y: 99)
+        }
     }
 
     private func footer(_ s: inout Screen) {

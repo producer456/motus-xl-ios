@@ -200,11 +200,11 @@ final class AudioEngine {
         return auSchedule[max(0, min(Self.maxTracks - 1, track))] != nil
     }
 
-    /// First few parameters of the track's AU, for encoder mapping.
-    func auParameters(track: Int, count: Int = 4) -> [AUParameter] {
+    /// All parameters of the track's AU, for banked encoder mapping.
+    func auParameters(track: Int) -> [AUParameter] {
         guard let au = auUnits[track],
               let params = au.auAudioUnit.parameterTree?.allParameters else { return [] }
-        return Array(params.prefix(count))
+        return params
     }
 
     @MainActor

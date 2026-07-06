@@ -10,9 +10,11 @@ enum Chrome {
     static let legend = Color(red: 0.78, green: 0.78, blue: 0.80)
 }
 
-/// Near-black matte rubber encoder knob — cylinder wall + slightly lighter top face.
+/// Near-black matte rubber encoder knob — cylinder wall + slightly lighter
+/// top face. `tilt` steers the specular light with device motion.
 struct KnobView: View {
     var diameter: CGFloat
+    var tilt: CGPoint = .zero
 
     var body: some View {
         ZStack {
@@ -33,19 +35,22 @@ struct KnobView: View {
             Circle()
                 .fill(
                     RadialGradient(colors: [Color(white: 0.185), Color(white: 0.075)],
-                                   center: .init(x: 0.38, y: 0.32),
+                                   center: .init(x: 0.38 - tilt.x * 0.20,
+                                                 y: 0.32 - tilt.y * 0.20),
                                    startRadius: 0, endRadius: diameter * 0.55)
                 )
                 .padding(diameter * 0.12)
-            // Faint matte sheen, upper-left.
+            // Faint matte sheen, gliding with the room light.
             Ellipse()
                 .fill(Color.white.opacity(0.06))
                 .frame(width: diameter * 0.55, height: diameter * 0.30)
-                .offset(x: -diameter * 0.06, y: -diameter * 0.20)
+                .offset(x: -diameter * 0.06 - tilt.x * diameter * 0.14,
+                        y: -diameter * 0.20 - tilt.y * diameter * 0.12)
                 .blur(radius: diameter * 0.08)
         }
         .frame(width: diameter, height: diameter)
-        .shadow(color: .black.opacity(0.6), radius: diameter * 0.07, y: diameter * 0.05)
+        .shadow(color: .black.opacity(0.6), radius: diameter * 0.07,
+                x: -tilt.x * diameter * 0.05, y: diameter * 0.05 - tilt.y * diameter * 0.04)
     }
 }
 

@@ -10,6 +10,7 @@
 		03C60D8CBDFCD5E10F1A7225 /* Chrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0562D0C6403F664DC328F0F8 /* Chrome.swift */; };
 		15A2E7F236AD9CB07695CBDC /* PanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688AF6DA3BC7FB8A60FFBA87 /* PanelView.swift */; };
 		18DC3C6B11A9B61320DE50A9 /* AudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AEDAF1330A0357E561A2333 /* AudioEngine.swift */; };
+		190D9B6F941FB97C799D593C /* Motion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74727B3C220C014CDE53DC95 /* Motion.swift */; };
 		514842289C2D8C30C7AEBF78 /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 863534603281FD45A5E69628 /* Model.swift */; };
 		7AEF96BAE034EE786B7DEA7E /* PadGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB7E928B2A932BF3F22D1A6D /* PadGridView.swift */; };
 		8091933DFB5E8F12B24F9A40 /* DrumKits in Resources */ = {isa = PBXBuildFile; fileRef = 0D7FBAA5D3C4CA8469CFF59F /* DrumKits */; };
@@ -32,6 +33,7 @@
 		3E42468DD500B4B3D99B9C22 /* DisplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayView.swift; sourceTree = "<group>"; };
 		4AEDAF1330A0357E561A2333 /* AudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEngine.swift; sourceTree = "<group>"; };
 		688AF6DA3BC7FB8A60FFBA87 /* PanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelView.swift; sourceTree = "<group>"; };
+		74727B3C220C014CDE53DC95 /* Motion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Motion.swift; sourceTree = "<group>"; };
 		80E01276A221700CB413E8D4 /* Brain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Brain.swift; sourceTree = "<group>"; };
 		863534603281FD45A5E69628 /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
 		A6184528C9A23E194877EED2 /* Controls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controls.swift; sourceTree = "<group>"; };
@@ -121,6 +123,7 @@
 				0562D0C6403F664DC328F0F8 /* Chrome.swift */,
 				A6184528C9A23E194877EED2 /* Controls.swift */,
 				3E42468DD500B4B3D99B9C22 /* DisplayView.swift */,
+				74727B3C220C014CDE53DC95 /* Motion.swift */,
 				EB7E928B2A932BF3F22D1A6D /* PadGridView.swift */,
 				688AF6DA3BC7FB8A60FFBA87 /* PanelView.swift */,
 			);
@@ -206,6 +209,7 @@
 				E690DD9777E6BEBDFCBA2F91 /* DisplayView.swift in Sources */,
 				D0F16BEEE5B0DFFD3E70B9E5 /* DrumKits.swift in Sources */,
 				514842289C2D8C30C7AEBF78 /* Model.swift in Sources */,
+				190D9B6F941FB97C799D593C /* Motion.swift in Sources */,
 				BD8D13538DFDC4113ECA30A5 /* MotusApp.swift in Sources */,
 				7AEF96BAE034EE786B7DEA7E /* PadGridView.swift in Sources */,
 				15A2E7F236AD9CB07695CBDC /* PanelView.swift in Sources */,

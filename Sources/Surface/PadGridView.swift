@@ -8,6 +8,7 @@ struct PadGridView: UIViewRepresentable {
     @EnvironmentObject var client: Brain
     var colors: [Int: SIMD3<Double>]
     var channels: [Int: Int]
+    var tilt: CGPoint = .zero
 
     func makeUIView(context: Context) -> PadGridUIView {
         let view = PadGridUIView()
@@ -18,6 +19,7 @@ struct PadGridView: UIViewRepresentable {
     func updateUIView(_ view: PadGridUIView, context: Context) {
         view.client = client
         view.apply(colors: colors, channels: channels)
+        view.applyTilt(tilt)
     }
 }
 
@@ -128,6 +130,25 @@ final class PadGridUIView: UIView {
                 padLayers[index].shadowRadius = 3
                 padLayers[index].shadowOffset = CGSize(width: 0, height: 2)
                 stopPulse(padLayers[index])
+            }
+        }
+        CATransaction.commit()
+    }
+
+    /// Steer the pillow shading + contact shadows with the device tilt so
+    /// the silicone reads as lit from a fixed room light.
+    func applyTilt(_ tilt: CGPoint) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let start = CGPoint(x: 0.5 - tilt.x * 0.35, y: 0)
+        let end = CGPoint(x: 0.5 + tilt.x * 0.35, y: 1)
+        for i in pillowLayers.indices {
+            pillowLayers[i].startPoint = start
+            pillowLayers[i].endPoint = end
+            // Only steer the resting shadow, not a lit pad's colored bleed.
+            if padLayers[i].shadowColor == UIColor.black.cgColor {
+                padLayers[i].shadowOffset = CGSize(width: -tilt.x * 2.5,
+                                                   height: 2 - tilt.y * 2)
             }
         }
         CATransaction.commit()

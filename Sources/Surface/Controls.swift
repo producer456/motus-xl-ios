@@ -235,12 +235,13 @@ struct EncoderView: View {
     @EnvironmentObject var client: Brain
     var index: Int        // 0..7, or 8 = volume
     var diameter: CGFloat
+    var tilt: CGPoint = .zero
 
     @State private var accumulated: CGFloat = 0
     @State private var touching = false
 
     var body: some View {
-        KnobView(diameter: diameter)
+        KnobView(diameter: diameter, tilt: tilt)
             .contentShape(Circle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -277,6 +278,7 @@ struct EncoderView: View {
 struct WheelView: View {
     @EnvironmentObject var client: Brain
     var diameter: CGFloat
+    var tilt: CGPoint = .zero
 
     @State private var lastAngle: CGFloat?
     @State private var touching = false
@@ -288,7 +290,8 @@ struct WheelView: View {
             Circle()
                 .fill(
                     RadialGradient(colors: [Color(white: 0.20), Color(white: 0.06)],
-                                   center: .init(x: 0.38, y: 0.32),
+                                   center: .init(x: 0.38 - tilt.x * 0.18,
+                                                 y: 0.32 - tilt.y * 0.18),
                                    startRadius: 0, endRadius: diameter * 0.8)
                 )
             Circle()

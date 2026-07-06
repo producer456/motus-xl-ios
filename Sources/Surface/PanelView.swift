@@ -6,6 +6,7 @@ import SwiftUI
 /// original Move's wide pad shape. Laid out in a 1000x699 design space.
 struct PanelView: View {
     @EnvironmentObject var client: Brain
+    @StateObject private var motion = MotionSource()
 
     static let designSize = CGSize(width: 1014, height: 699)
 
@@ -16,6 +17,7 @@ struct PanelView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 panel(scale: scale)
+                    .onAppear { motion.start() }
                     .frame(width: Self.designSize.width * scale,
                            height: Self.designSize.height * scale)
                     .position(x: geo.size.width / 2, y: geo.size.height / 2)
@@ -31,6 +33,7 @@ struct PanelView: View {
         ZStack {
             if !client.bareTheme { chassis(scale: s) }
             controls(scale: s)
+                .offset(x: motion.tilt.x * 2.5 * s, y: motion.tilt.y * 2.5 * s)
         }
     }
 
@@ -60,6 +63,14 @@ struct PanelView: View {
                             lineWidth: 1.5 * s)
                 )
                 .shadow(color: .black.opacity(0.8), radius: 18 * s, y: 6 * s)
+
+            // Room light: a broad soft sheen that glides with device tilt.
+            RadialGradient(colors: [Color.white.opacity(0.05), .clear],
+                           center: .init(x: 0.5 - motion.tilt.x * 0.35,
+                                         y: 0.12 - motion.tilt.y * 0.25),
+                           startRadius: 40 * s, endRadius: 620 * s)
+                .clipShape(RoundedRectangle(cornerRadius: 26 * s))
+                .allowsHitTesting(false)
 
             // Edge vignette: light falls off toward the chassis edges.
             RadialGradient(colors: [.clear, .black.opacity(0.16)],
@@ -116,12 +127,12 @@ struct PanelView: View {
     private func controls(scale s: CGFloat) -> some View {
         ZStack {
             // ---- Top zone: the XL's big OLED (256x128), encoders, volume ----
-            DisplayView(image: client.displayImage)
+            DisplayView(image: client.displayImage, tilt: motion.tilt)
                 .frame(width: 176 * s, height: 88 * s)
                 .position(x: 507 * s, y: 66 * s)
 
             ForEach(0..<8, id: \.self) { index in
-                EncoderView(index: index, diameter: 42 * s)
+                EncoderView(index: index, diameter: 42 * s, tilt: motion.tilt)
                     .position(x: encoderX(index) * s, y: 46 * s)
                 Circle() // touch indicator dot under each encoder
                     .fill(Color(white: 0.38))
@@ -129,7 +140,7 @@ struct PanelView: View {
                     .position(x: encoderX(index) * s, y: 80 * s)
             }
 
-            EncoderView(index: 8, diameter: 48 * s) // volume
+            EncoderView(index: 8, diameter: 48 * s, tilt: motion.tilt) // volume
                 .position(x: 966 * s, y: 54 * s)
 
             // ---- Left rail: wheel steppers, wheel, back / mode ----
@@ -137,7 +148,7 @@ struct PanelView: View {
                 .position(x: 50 * s, y: 152 * s)
             FunctionButton(id: "wheelDown", systemImage: "chevron.down", diameter: 30 * s)
                 .position(x: 94 * s, y: 152 * s)
-            WheelView(diameter: 88 * s)
+            WheelView(diameter: 88 * s, tilt: motion.tilt)
                 .position(x: 72 * s, y: 220 * s)
 
             FunctionButton(id: "back", systemImage: "chevron.left", diameter: 34 * s)
@@ -152,7 +163,7 @@ struct PanelView: View {
             }
 
             // ---- 8x8 pad grid: original Move pad shape (wide 1.5:1) ----
-            PadGridView(colors: client.noteColors, channels: client.noteChannels)
+            PadGridView(colors: client.noteColors, channels: client.noteChannels, tilt: motion.tilt)
                 .frame(width: 692 * s, height: 488 * s)
                 .position(x: 520 * s, y: 372 * s)
 

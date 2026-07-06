@@ -133,15 +133,15 @@ struct PanelView: View {
 
             ForEach(0..<8, id: \.self) { index in
                 EncoderView(index: index, diameter: 42 * s, tilt: motion.tilt)
-                    .position(x: encoderX(index) * s, y: 46 * s)
+                    .position(x: encoderX(index) * s, y: 58 * s)
                 Circle() // touch indicator dot under each encoder
                     .fill(Color(white: 0.38))
                     .frame(width: 6 * s, height: 6 * s)
-                    .position(x: encoderX(index) * s, y: 80 * s)
+                    .position(x: encoderX(index) * s, y: 92 * s)
             }
 
             EncoderView(index: 8, diameter: 48 * s, tilt: motion.tilt) // volume
-                .position(x: 966 * s, y: 54 * s)
+                .position(x: 966 * s, y: 58 * s)
 
             // ---- Left rail: wheel steppers, wheel, back / mode ----
             FunctionButton(id: "wheelUp", systemImage: "chevron.up", diameter: 30 * s)

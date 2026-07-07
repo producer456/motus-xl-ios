@@ -230,7 +230,10 @@ final class Brain: ObservableObject {
             if source.localizedCaseInsensitiveContains("launchkey") {
                 let isDAW = source.localizedCaseInsensitiveContains("daw")
                 MainActor.assumeIsolated { self?.launchkey?.handle(message, isDAWPort: isDAW) }
-            } else if source.localizedCaseInsensitiveContains("launchpad") {
+            } else if source.localizedCaseInsensitiveContains("launchpad"),
+                      !source.localizedCaseInsensitiveContains("daw") {
+                // Programmer mode lives on the MIDI port; the DAW port only
+                // carries session-layout junk before the mode switch lands.
                 MainActor.assumeIsolated { self?.launchpad?.handle(message) }
             }
         }
@@ -2504,8 +2507,6 @@ final class Brain: ObservableObject {
         barPage = min(barPage, min(track.clips[song.selectedScene].bars, 15))
         refreshScreen()
         refreshLeds()
-        launchkey?.refresh()
-        launchpad?.refresh()
     }
 
     // XL display: 256x128 — menus get room, the main screen earns the extra
@@ -3015,6 +3016,8 @@ final class Brain: ObservableObject {
         noteColors = colors
         noteChannels = channels
         ccLeds = ccs
+        launchkey?.refresh()
+        launchpad?.refresh()
     }
 
     // MARK: - Control id maps (shared with the panel views)

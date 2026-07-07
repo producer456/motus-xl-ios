@@ -247,7 +247,7 @@ final class LaunchkeyDriver {
     // MARK: - Feedback
 
     func refresh() {
-        guard connected, let brain else { return }
+        guard connected, let brain, brain.poweredOn else { return }
         syncClock(brain.song.tempo)
         paintPads(brain)
         paintButtons(brain)

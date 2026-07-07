@@ -11,7 +11,6 @@ final class LaunchpadDriver {
     let midi: MIDIManager
     private(set) var connected = false
 
-    private var lastRGB = [UInt8](repeating: 255, count: 100)   // note -> sent palette/level marker
     private var lastSpec: [UInt8: [UInt8]] = [:]                // note -> last LED spec sent
     private var lastCC: [UInt8: UInt8] = [:]
     private var clockTimer: DispatchSourceTimer?
@@ -31,13 +30,18 @@ final class LaunchpadDriver {
 
     func connectIfPresent() {
         let present = midi.sourceNames.contains { $0.localizedCaseInsensitiveContains("launchpad") }
-        if present && !connected {
-            sysex([0x0E, 0x01])          // programmer mode
-            connected = true
-            lastSpec.removeAll(); lastCC.removeAll()
-            refresh()
-        }
-        if !present && connected {
+        if present {
+            // Re-send programmer mode on every setup change: during USB
+            // enumeration the destination may not exist yet, so a single
+            // latched attempt can be lost forever. Latch only on success.
+            let sent = midi.send([0xF0, 0x00, 0x20, 0x29, 0x02, 0x0D, 0x0E, 0x01, 0xF7],
+                                 toPortMatchingAll: ["launchpad", "midi"])
+            if sent {
+                connected = true
+                lastSpec.removeAll(); lastCC.removeAll()
+                refresh()
+            }
+        } else if connected {
             clockTimer?.cancel(); clockTimer = nil; clockTempo = 0
             connected = false
         }
@@ -114,7 +118,7 @@ final class LaunchpadDriver {
     // MARK: - Feedback
 
     func refresh() {
-        guard connected, let brain else { return }
+        guard connected, let brain, brain.poweredOn else { return }
         syncClock(brain.song.tempo)
         var specs: [UInt8] = []
         for i in 0..<64 {

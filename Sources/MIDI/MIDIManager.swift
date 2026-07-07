@@ -62,10 +62,9 @@ final class MIDIManager {
             }
             if let first = needles.first, nm.contains(first.lowercased()), fallback == nil { fallback = dst }
         }
-        if let fallback {
-            destCache[cacheKey] = fallback
-            return rawSend(bytes, to: fallback)
-        }
+        // Fallback is NOT cached: during USB enumeration the wrong sibling
+        // port can appear first and would otherwise stick forever.
+        if let fallback { return rawSend(bytes, to: fallback) }
         return false
     }
 

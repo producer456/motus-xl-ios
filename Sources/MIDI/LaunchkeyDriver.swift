@@ -36,6 +36,14 @@ final class LaunchkeyDriver {
     /// Mini MK4 knobs are absolute pots (ch16 CC 0x15-0x1C, proven on the
     /// actual unit) — convert to deltas for Brain's relative encoder API.
     private var lastPot = [Int?](repeating: nil, count: 8)
+    /// OLED bitmap orientation (bit0 flipV, bit1 flipH) — tuned from Setup.
+    var bitmapOrient = UserDefaults.standard.integer(forKey: "lk.orient") {
+        didSet {
+            UserDefaults.standard.set(bitmapOrient, forKey: "lk.orient")
+            lastBitmap.removeAll()          // force an immediate repaint
+            lastBitmapAt = .distantPast
+        }
+    }
 
     static func matches(_ name: String) -> Bool {
         let n = name.lowercased()
@@ -380,12 +388,14 @@ final class LaunchkeyDriver {
             ctx.interpolationQuality = .medium
             ctx.draw(image, in: CGRect(x: 0, y: 0, width: 128, height: 64))
             let px = raw.bindMemory(to: UInt8.self)
-            // Hardware-verified orientation: the panel scans opposite to the
-            // CG buffer on BOTH axes (first attempt came out rotated 180).
+            // Panel scan direction is set live from Setup (LK SCREEN row):
+            // bit0 = vertical flip, bit1 = horizontal flip.
+            let flipV = bitmapOrient & 1 != 0
+            let flipH = bitmapOrient & 2 != 0
             for row in 0..<64 {
-                let src = row * 128
+                let src = (flipV ? row : 63 - row) * 128   // CG is bottom-up
                 for col in 0..<128 where px[src + col] > 90 {
-                    let dcol = 127 - col
+                    let dcol = flipH ? 127 - col : col
                     packed[row * 19 + dcol / 7] |= UInt8(0x40) >> UInt8(dcol % 7)
                 }
             }

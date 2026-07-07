@@ -24,7 +24,7 @@ final class Brain: ObservableObject {
     @Published var auIcons: [Int: UIImage] = [:]
     /// Hardware-theme chassis color (palette index, persisted).
     @Published var chassisColorIndex = UserDefaults.standard.integer(forKey: "theme.color")
-    private var setupRow = 0   // 0 theme, 1 color, 2 hidden plugins
+    private var setupRow = 0   // 0 theme, 1 color, 2 hidden plugins, 3 LK screen
     /// AUs the user hid from the browser (Delete + wheel press on the entry).
     private var hiddenAUs: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "au.hidden") ?? [])
 
@@ -1816,7 +1816,7 @@ final class Brain: ObservableObject {
         case .workflow:
             workflowRow = (workflowRow + 1) % 4
         case .setup:
-            setupRow = (setupRow + 1) % 3
+            setupRow = (setupRow + 1) % 4
         default:
             menu = .none
         }
@@ -2008,12 +2008,19 @@ final class Brain: ObservableObject {
                 let count = Self.chassisColors.count
                 chassisColorIndex = ((chassisColorIndex + delta) % count + count) % count
                 UserDefaults.standard.set(chassisColorIndex, forKey: "theme.color")
-            default:
+            case 2:
                 guard !hiddenAUs.isEmpty else { break }
                 let n = hiddenAUs.count
                 hiddenAUs.removeAll()
                 UserDefaults.standard.removeObject(forKey: "au.hidden")
                 showOverlay("PLUGINS", 1, "\(n) RESTORED")
+            default:
+                // Cycle the Launchkey screen orientation until it reads right.
+                if let lk = launchkey {
+                    lk.bitmapOrient = (lk.bitmapOrient + (delta > 0 ? 1 : 3)) % 4
+                    showOverlay("LK SCREEN", Double(lk.bitmapOrient) / 3,
+                                ["NORMAL", "FLIP V", "FLIP H", "ROTATE 180"][lk.bitmapOrient])
+                }
             }
             refresh()
         case .metronome, .message:
@@ -2698,11 +2705,13 @@ final class Brain: ObservableObject {
             let colorName = Self.chassisColors[((chassisColorIndex % Self.chassisColors.count)
                 + Self.chassisColors.count) % Self.chassisColors.count].name
             let themeName = ["HARDWARE", "BARE", "VINTAGE"][((themeStyle % 3) + 3) % 3]
+            let orientName = ["NORMAL", "FLIP V", "FLIP H", "ROT 180"][(launchkey?.bitmapOrient ?? 0) % 4]
             let rows = ["THEME  \(themeName)", "COLOR  \(colorName)",
                         hiddenAUs.isEmpty ? "AU HIDDEN  NONE"
-                                          : "AU HIDDEN  \(hiddenAUs.count) TURN=RESTORE"]
+                                          : "AU HIDDEN  \(hiddenAUs.count) TURN=RESTORE",
+                        "LK SCREEN  \(orientName)"]
             for (i, row) in rows.enumerated() {
-                let y = 40 + i * 22
+                let y = 36 + i * 19
                 if setupRow == i { s.fillRect(4, y - 6, 248, 20) }
                 s.text(row, x: 12, y: y, size: 2, invert: setupRow == i)
             }

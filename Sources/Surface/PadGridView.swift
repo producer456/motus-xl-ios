@@ -117,14 +117,9 @@ final class PadGridUIView: UIView {
                 let color = UIColor(red: 0.08 + 0.80 * rgb.x, green: 0.08 + 0.80 * rgb.y,
                                     blue: 0.08 + 0.80 * rgb.z, alpha: 1)
                 padLayers[index].backgroundColor = color.cgColor
-                let hot = UIColor(red: 0.38 + 0.62 * rgb.x, green: 0.38 + 0.62 * rgb.y,
-                                  blue: 0.38 + 0.62 * rgb.z, alpha: 0.55)
-                let mid = UIColor(red: 0.10 + 0.90 * rgb.x, green: 0.10 + 0.90 * rgb.y,
-                                  blue: 0.10 + 0.90 * rgb.z, alpha: 1)
-                hotspotLayers[index].colors = [hot.cgColor, mid.withAlphaComponent(0.10).cgColor,
-                                               UIColor.clear.cgColor]
-                hotspotLayers[index].locations = [0.0, 0.45, 1.0]
-                hotspotLayers[index].isHidden = false
+                // No center hotspot (tried, David prefers the flat glow):
+                // the body color + edge + deck wash carry the illumination.
+                hotspotLayers[index].isHidden = true
                 // The pad IS the light source: its silicone rim glows brightest.
                 padLayers[index].borderWidth = 1.5
                 padLayers[index].borderColor = UIColor(

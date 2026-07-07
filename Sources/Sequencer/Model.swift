@@ -182,15 +182,21 @@ enum Scales {
     /// In-Key (manual 9.1): each row is an octave walking the scale from the
     /// root; short scales roll into the next octave within the row.
     /// Chromatic: fretboard — right = +1 semitone, up = +5 (perfect fourth).
+    /// nil = the pad falls outside MIDI range (top rows at high octaves) —
+    /// inert and unlit rather than clamped onto a duplicate pitch (clamping
+    /// made the top-right pads share note 126: a buzzy blip + ghost greens).
     static func padToNote(_ index: Int, root: Int, scale: [Int], octave: Int,
-                          chromatic: Bool = false) -> Int {
+                          chromatic: Bool = false) -> Int? {
         let row = 7 - index / 8      // 0 = bottom row
         let col = index % 8
+        let note: Int
         if chromatic {
-            return min(126, max(1, 36 + root + octave * 12 + row * 5 + col))
+            note = 36 + root + octave * 12 + row * 5 + col
+        } else {
+            let oct = col / scale.count
+            let step = scale[col % scale.count]
+            note = 36 + root + (octave + row) * 12 + oct * 12 + step
         }
-        let oct = col / scale.count
-        let step = scale[col % scale.count]
-        return min(126, max(1, 36 + root + (octave + row) * 12 + oct * 12 + step))
+        return (1...126).contains(note) ? note : nil
     }
 }

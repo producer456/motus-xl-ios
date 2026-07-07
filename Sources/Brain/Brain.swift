@@ -543,17 +543,18 @@ final class Brain: ObservableObject {
             }
         } else {
             let scale = Scales.all[song.scaleIndex].steps
-            let note = Scales.padToNote(index, root: song.rootNote, scale: scale,
-                                        octave: track.octave, chromatic: song.chromatic ?? false)
+            let maybeNote = Scales.padToNote(index, root: song.rootNote, scale: scale,
+                                             octave: track.octave, chromatic: song.chromatic ?? false)
             if !down {
                 // Releases always land, even with delete/mute held.
-                let released = heldPads.removeValue(forKey: index) ?? note
+                guard let released = heldPads.removeValue(forKey: index) ?? maybeNote else { return }
                 engine.liveNote(track: song.selectedTrack, kind: .synth,
                                 key: released, velocity: velocity, on: false)
                 captureNoteOff(key: released)
                 recordRelease(key: released)
                 return
             }
+            guard let note = maybeNote else { return }   // out-of-range pad: inert
             if deleteHeld {
                 // Delete all occurrences of this note instead of playing it.
                 if down {
@@ -3068,8 +3069,9 @@ final class Brain: ObservableObject {
                     }
                 }
                 for i in 0..<64 {
-                    let note = Scales.padToNote(i, root: song.rootNote, scale: scale,
-                                                octave: track.octave, chromatic: chromatic)
+                    guard let note = Scales.padToNote(i, root: song.rootNote, scale: scale,
+                                                      octave: track.octave, chromatic: chromatic)
+                    else { continue }   // out-of-range: unlit
                     let pc = ((note - song.rootNote) % 12 + 12) % 12
                     if soundingNotes.contains(note) {
                         colors[Self.padNote(i)] = SIMD3(0.35, 1.0, 0.45)
@@ -3155,9 +3157,10 @@ final class Brain: ObservableObject {
             } else {
                 let scale = Scales.all[song.scaleIndex].steps
                 for i in 0..<64 {
-                    let note = Scales.padToNote(i, root: song.rootNote, scale: scale,
-                                                octave: track.octave,
-                                                chromatic: song.chromatic ?? false)
+                    guard let note = Scales.padToNote(i, root: song.rootNote, scale: scale,
+                                                      octave: track.octave,
+                                                      chromatic: song.chromatic ?? false)
+                    else { continue }
                     if keys.contains(note) {
                         colors[Self.padNote(i)] = SIMD3(0.95, 0.95, 0.92)
                     }

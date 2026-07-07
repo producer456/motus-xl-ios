@@ -395,6 +395,19 @@ final class LaunchkeyDriver {
         Array(s.unicodeScalars.compactMap { $0.value >= 0x20 && $0.value <= 0x7E ? UInt8($0.value) : nil }.prefix(max))
     }
 
+    private var lastParam = ""
+
+    /// Firmware name/value popup while a knob turns (AUSeq's showParam).
+    func paramPopup(_ name: String, _ value: String) {
+        guard connected else { return }
+        let key = name + "=" + value
+        guard key != lastParam else { return }
+        lastParam = key
+        sysex([0x04, 0x21, 0x01])
+        sysex([0x06, 0x21, 0x00] + ascii(name, max: 16))
+        sysex([0x06, 0x21, 0x41] + ascii(value, max: 16))
+    }
+
     /// Transient two-line popup (target 0x21). Field | 0x40 triggers inline.
     private func popup(_ line1: String, _ line2: String) {
         sysex([0x04, 0x21, 0x01])

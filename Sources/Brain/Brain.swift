@@ -188,6 +188,7 @@ final class Brain: ObservableObject {
 
     /// Momentary parameter overlay (encoder turns), auto-expires.
     private var overlay: (title: String, value: Double, label: String)?
+    private var overlayCompact = false
     private var overlayUntil = Date.distantPast
 
     private var uiTimer: AnyCancellable?
@@ -443,7 +444,19 @@ final class Brain: ObservableObject {
 
     private func showOverlay(_ title: String, _ value: Double, _ label: String) {
         overlay = (title, value, label)
+        overlayCompact = false
         overlayUntil = Date().addingTimeInterval(1.0)
+        refresh()
+    }
+
+    /// Knob/param feedback (AUSeq-style): a compact strip over the main
+    /// screen instead of a full takeover, mirrored to the Launchkey as the
+    /// firmware's own name/value popup.
+    private func showParam(_ title: String, _ value: Double, _ label: String) {
+        overlay = (title, value, label)
+        overlayCompact = true
+        overlayUntil = Date().addingTimeInterval(1.0)
+        launchkey?.paramPopup(title, label)
         refresh()
     }
 
@@ -1634,7 +1647,7 @@ final class Brain: ObservableObject {
             }
             song.tracks[song.selectedTrack].clips[song.selectedScene] = c
         }
-        showOverlay("VELOCITY", Double(shown) / 127, "\(shown)")
+        showParam("VELOCITY", Double(shown) / 127, "\(shown)")
     }
 
     /// Step-hold + wheel (manual 11.3): note length, 10% of a step per click.
@@ -1659,7 +1672,7 @@ final class Brain: ObservableObject {
             }
             song.tracks[song.selectedTrack].clips[song.selectedScene] = c
         }
-        showOverlay("NOTE LENGTH", min(1, shown / 4), String(format: "%.1f", shown))
+        showParam("NOTE LENGTH", min(1, shown / 4), String(format: "%.1f", shown))
     }
 
     /// Step-hold + arrows (manual 11.4): nudge by a fraction of a step.
@@ -2097,7 +2110,7 @@ final class Brain: ObservableObject {
             if index == 0 {
                 adjust { $0.tracks[t].volume = min(1, max(0, $0.tracks[t].volume + Double(d) * 0.02)) }
                 engine.setAUVolume(track: t, volume: Float(track.volume))
-                showOverlay("TRACK VOL", track.volume, String(format: "%.0f%%", track.volume * 100))
+                showParam("TRACK VOL", track.volume, String(format: "%.0f%%", track.volume * 100))
                 return
             }
             let params = engine.auParameters(track: t)
@@ -2111,7 +2124,7 @@ final class Brain: ObservableObject {
             param.setValue(value, originator: nil)
             automationHook(lane: "au.\(param.address)", value: Double(value))
             let label = param.string(fromValue: nil) ?? String(format: "%.2f", value)
-            showOverlay(String(param.displayName.prefix(18)),
+            showParam(String(param.displayName.prefix(18)),
                         Double((value - param.minValue) / max(0.0001, span)),
                         String(label.prefix(18)))
             return
@@ -2122,38 +2135,38 @@ final class Brain: ObservableObject {
             m.cutoff = min(8, max(0.05, m.cutoff * (1 + d * 0.04)))
             engine.setMacro(track: t, cutoff: m.cutoff)
             automationHook(lane: "cutoff", value: Double(m.cutoff))
-            showOverlay("CUTOFF", Double(min(1, m.cutoff / 4)), String(format: "%.0f%%", m.cutoff * 100))
+            showParam("CUTOFF", Double(min(1, m.cutoff / 4)), String(format: "%.0f%%", m.cutoff * 100))
         case 1:
             let base = m.res < 0 ? 0.3 : m.res
             m.res = min(0.95, max(0, base + d * 0.02))
             engine.setMacro(track: t, res: m.res)
             automationHook(lane: "res", value: Double(m.res))
-            showOverlay("RESONANCE", Double(m.res), String(format: "%.0f%%", m.res * 100))
+            showParam("RESONANCE", Double(m.res), String(format: "%.0f%%", m.res * 100))
         case 2:
             m.attack = min(8, max(0.1, m.attack * (1 + d * 0.05)))
             engine.setMacro(track: t, attack: m.attack)
             automationHook(lane: "attack", value: Double(m.attack))
-            showOverlay("ATTACK", Double(min(1, m.attack / 4)), String(format: "X%.2f", m.attack))
+            showParam("ATTACK", Double(min(1, m.attack / 4)), String(format: "X%.2f", m.attack))
         case 3:
             m.release = min(8, max(0.1, m.release * (1 + d * 0.05)))
             engine.setMacro(track: t, release: m.release)
             automationHook(lane: "release", value: Double(m.release))
-            showOverlay("RELEASE", Double(min(1, m.release / 4)), String(format: "X%.2f", m.release))
+            showParam("RELEASE", Double(min(1, m.release / 4)), String(format: "X%.2f", m.release))
         case 4:
             m.delay = min(1, max(0, m.delay + d * 0.02))
             engine.setMacro(track: t, delay: m.delay)
             automationHook(lane: "delay", value: Double(m.delay))
-            showOverlay("DELAY SEND", Double(m.delay), String(format: "%.0f%%", m.delay * 100))
+            showParam("DELAY SEND", Double(m.delay), String(format: "%.0f%%", m.delay * 100))
         case 5:
             adjust { $0.tracks[t].volume = min(1, max(0, $0.tracks[t].volume + Double(d) * 0.02)) }
             engine.setAUVolume(track: t, volume: Float(track.volume))
-            showOverlay("TRACK VOL", track.volume, String(format: "%.0f%%", track.volume * 100))
+            showParam("TRACK VOL", track.volume, String(format: "%.0f%%", track.volume * 100))
         case 6:
             adjust { $0.swing = min(1.3, max(0, $0.swing + Double(d) * 0.02)) }
-            showOverlay("GROOVE", song.swing, String(format: "%.0f%%", song.swing * 100))
+            showParam("GROOVE", song.swing, String(format: "%.0f%%", song.swing * 100))
         case 7:
             adjust { $0.tempo = min(240, max(40, $0.tempo + Double(d) * (shiftHeld ? 0.1 : 1))) }
-            showOverlay("TEMPO", (song.tempo - 40) / 200, String(format: "%.1f BPM", song.tempo))
+            showParam("TEMPO", (song.tempo - 40) / 200, String(format: "%.1f BPM", song.tempo))
         default:
             break
         }
@@ -2179,7 +2192,7 @@ final class Brain: ObservableObject {
         adjust { $0.fxParams = fx }
         let norms: [Double] = [(fx[0] + 40) / 40, (fx[1] - 1) / 7, fx[2] / 12,
                                (fx[3] - 1) / 9, fx[4], fx[5]]
-        showOverlay(names[p], norms[p], String(format: "%.2f", fx[p]))
+        showParam(names[p], norms[p], String(format: "%.2f", fx[p]))
     }
 
     func volume(delta: Int) {
@@ -2201,7 +2214,7 @@ final class Brain: ObservableObject {
                     }
                 }
                 for (i, t) in song.tracks.enumerated() { engine.setAUVolume(track: i, volume: Float(t.volume)) }
-                showOverlay("SET VOLUME", song.tracks[0].volume, "SET \(slot + 1)")
+                showParam("SET VOLUME", song.tracks[0].volume, "SET \(slot + 1)")
             } else if var other = Self.loadSet(slot: slot) {
                 for i in other.tracks.indices {
                     other.tracks[i].volume = min(1, max(0.02, other.tracks[i].volume * factor))
@@ -2209,7 +2222,7 @@ final class Brain: ObservableObject {
                 if let data = try? JSONEncoder().encode(other) {
                     try? data.write(to: Self.slotURL(slot))
                 }
-                showOverlay("SET VOLUME", other.tracks[0].volume, "SET \(slot + 1)")
+                showParam("SET VOLUME", other.tracks[0].volume, "SET \(slot + 1)")
             }
             return
         }
@@ -2218,7 +2231,7 @@ final class Brain: ObservableObject {
             muteUsed = true
             adjust { $0.tracks[t].volume = min(1, max(0, $0.tracks[t].volume + Double(delta) * 0.02)) }
             engine.setAUVolume(track: t, volume: Float(song.tracks[t].volume))
-            showOverlay("T\(t + 1) VOLUME", song.tracks[t].volume,
+            showParam("T\(t + 1) VOLUME", song.tracks[t].volume,
                         String(format: "%.0f%%", song.tracks[t].volume * 100))
             return
         }
@@ -2230,12 +2243,12 @@ final class Brain: ObservableObject {
                 song.tracks[song.selectedTrack].cellGains = gains
             }
             let gain = track.cellGains?[cell] ?? 1
-            showOverlay("PAD \(cell + 1) GAIN", gain / 2, String(format: "%.0f%%", gain * 100))
+            showParam("PAD \(cell + 1) GAIN", gain / 2, String(format: "%.0f%%", gain * 100))
             return
         }
         mainVolume = min(1, max(0, mainVolume + Double(delta) * 0.02))
         engine.setMainVolume(Float(mainVolume))
-        showOverlay("MAIN VOLUME", mainVolume, String(format: "%.0f%%", mainVolume * 100))
+        showParam("MAIN VOLUME", mainVolume, String(format: "%.0f%%", mainVolume * 100))
     }
 
     // MARK: - External control surface (Launchkey)
@@ -2642,9 +2655,19 @@ final class Brain: ObservableObject {
     private func refreshScreen() {
         var s = Screen()
         if let overlay {
-            s.text(overlay.title, x: 8, y: 12, size: 2)
-            s.bar(8, 48, 240, 22, value: overlay.value)
-            s.textCentered(overlay.label, y: 88, size: 2)
+            if overlayCompact, menu == .none {
+                // Param strip: keep the main screen, readout along the bottom.
+                mainScreen(&s)
+                s.fillRect(0, 100, 256, 28)
+                s.text(String(overlay.title.prefix(14)), x: 6, y: 106, size: 2, invert: true)
+                s.text(String(overlay.label.prefix(8)), x: 186, y: 106, size: 2, invert: true)
+                let w = Int(244 * min(1, max(0, overlay.value)))
+                if w > 0 { s.invertRegion(6, 122, w, 4) }
+            } else {
+                s.text(overlay.title, x: 8, y: 12, size: 2)
+                s.bar(8, 48, 240, 22, value: overlay.value)
+                s.textCentered(overlay.label, y: 88, size: 2)
+            }
             displayImage = s.render()
             return
         }

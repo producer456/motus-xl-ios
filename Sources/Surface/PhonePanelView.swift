@@ -36,6 +36,7 @@ struct PhonePanelView: View {
                 Color.black.ignoresSafeArea()
                 panel(scale: scale)
                     .onAppear { motion.start() }
+                    .onDisappear { motion.stop() }
                     .onChange(of: scenePhase) { _, phase in
                         phase == .active ? motion.start() : motion.stop()
                     }

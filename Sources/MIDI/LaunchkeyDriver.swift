@@ -52,7 +52,8 @@ final class LaunchkeyDriver {
 
     init(midi: MIDIManager) { self.midi = midi }
 
-    private func send(_ bytes: [UInt8]) {
+    @discardableResult
+    private func send(_ bytes: [UInt8]) -> Bool {
         midi.send(bytes, toPortMatchingAll: ["launchkey|lkmk4", "daw"])
     }
     private func sysex(_ body: [UInt8]) {
@@ -68,7 +69,9 @@ final class LaunchkeyDriver {
     }
 
     private func connect() {
-        send([0x9F, 0x0C, 0x7F])       // DAW mode on
+        // Latch only if the DAW port accepted the enable — during hot-plug the
+        // destination may not exist yet; retry on the next setup change.
+        guard send([0x9F, 0x0C, 0x7F]) else { return }   // DAW mode on
         send([0xB6, 0x1D, 0x02])       // pad mode: DAW/session
         send([0xB6, 0x45, 0x7F])       // encoders -> relative output
         send([0xB6, 0x47, 0x7F])       // encoder touch events on
@@ -85,6 +88,7 @@ final class LaunchkeyDriver {
     }
 
     private func drop() {
+        brain?.releaseModifiers()   // unplug mid-hold must not strand held voices
         brain?.surfaceChanged("LAUNCHKEY MK4", connected: false)
         clockTimer?.cancel()
         clockTimer = nil

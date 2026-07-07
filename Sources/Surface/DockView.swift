@@ -9,6 +9,7 @@ import SwiftUI
 struct DockView: View {
     @EnvironmentObject var client: Brain
     @StateObject private var motion = MotionSource()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         GeometryReader { geo in
@@ -23,6 +24,10 @@ struct DockView: View {
         }
         .ignoresSafeArea()
         .onAppear { motion.start() }
+        .onDisappear { motion.stop() }
+        .onChange(of: scenePhase) { _, phase in
+            phase == .active ? motion.start() : motion.stop()
+        }
         .sheet(isPresented: Binding(get: { client.auSheetVC != nil },
                                     set: { if !$0 { client.auSheetVC = nil } })) {
             if let vc = client.auSheetVC {

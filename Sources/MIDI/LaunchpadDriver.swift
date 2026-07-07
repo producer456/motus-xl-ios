@@ -49,6 +49,7 @@ final class LaunchpadDriver {
                 refresh()
             }
         } else if connected {
+            brain?.releaseModifiers()   // unplug mid-hold must not strand pad state
             clockTimer?.cancel(); clockTimer = nil; clockTempo = 0
             connected = false
             brain?.surfaceChanged("LAUNCHPAD MINI", connected: false)

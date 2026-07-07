@@ -1290,6 +1290,7 @@ final class Brain: ObservableObject {
                 if mode == .setOverview, selectedOverviewSlot != currentSlot {
                     loadSlot(selectedOverviewSlot)
                 }
+                if menu == .loopLength { clearLoopModeLatches() }
                 mode = mode == .note ? .session : .note
                 cancelBrowserPreview()
                 menu = .none
@@ -1302,6 +1303,7 @@ final class Brain: ObservableObject {
         case "loop":
             if down {
                 cancelBrowserPreview()
+                if menu == .loopLength { clearLoopModeLatches() }
                 menu = menu == .loopLength ? .none : .loopLength
                 refresh()
             }
@@ -1636,18 +1638,20 @@ final class Brain: ObservableObject {
 
     /// Notes at the held steps — drum edits are scoped to the selected cell,
     /// melodic edits cover all notes at the step (matches the LEDs).
-    private func heldStepMatches(_ note: Note, _ steps: Set<Int>) -> Bool {
-        steps.contains(note.step) && (track.kind == .synth || note.key == track.selectedPad)
+    private func heldStepMatches(_ note: Note, _ steps: Set<Int>,
+                                _ isSynth: Bool, _ selPad: Int) -> Bool {
+        steps.contains(note.step) && (isSynth || note.key == selPad)
     }
 
     /// Step-hold + Volume encoder (manual 11.1): note velocity.
     private func adjustHeldVelocity(by delta: Int) {
         let steps = heldAbsSteps()
         stepEntryUsed.formUnion(heldSteps)
+        let isSynth = track.kind == .synth, selPad = track.selectedPad
         var shown = 100
         adjust { song in
             var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
-            for i in c.notes.indices where heldStepMatches(c.notes[i], steps) {
+            for i in c.notes.indices where heldStepMatches(c.notes[i], steps, isSynth, selPad) {
                 c.notes[i].velocity = min(127, max(1, c.notes[i].velocity + delta * 2))
                 shown = c.notes[i].velocity
             }
@@ -1660,10 +1664,11 @@ final class Brain: ObservableObject {
     private func adjustHeldLength(by delta: Int) {
         let steps = heldAbsSteps()
         stepEntryUsed.formUnion(heldSteps)
+        let isSynth = track.kind == .synth, selPad = track.selectedPad
         var shown = 1.0
         adjust { song in
             var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
-            for i in c.notes.indices where heldStepMatches(c.notes[i], steps) {
+            for i in c.notes.indices where heldStepMatches(c.notes[i], steps, isSynth, selPad) {
                 var length = c.notes[i].lengthSteps + Double(delta) * 0.1
                 length = max(0.1, min(Double(c.steps), length))
                 // Manual: cannot extend past the next note with the same key.
@@ -1685,10 +1690,11 @@ final class Brain: ObservableObject {
     private func nudgeHeldSteps(by amount: Double) {
         let steps = heldAbsSteps()
         stepEntryUsed.formUnion(heldSteps)
+        let isSynth = track.kind == .synth, selPad = track.selectedPad
         var shownPercent = 0
         edit { song in
             var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
-            for i in c.notes.indices where heldStepMatches(c.notes[i], steps) {
+            for i in c.notes.indices where heldStepMatches(c.notes[i], steps, isSynth, selPad) {
                 var position = Double(c.notes[i].step) + c.notes[i].off + amount
                 let total = Double(c.steps)
                 position = (position.truncatingRemainder(dividingBy: total) + total)
@@ -2529,7 +2535,7 @@ final class Brain: ObservableObject {
                 let spanSec = max(0.05, (phrase.map { $0.start + $0.length }.max() ?? t0) - t0)
                 let fit = Self.fitTempo(spanSeconds: spanSec, noteCount: phrase.count,
                                         singleDur: phrase.first?.length ?? 1)
-                song.tempo = fit.bpm
+                song.tempo = min(240, max(40, fit.bpm))
                 let stepsPerSecond = song.tempo / 60 * 4
                 let bars = min(16, fit.bars)
                 for note in phrase {
@@ -2671,6 +2677,13 @@ final class Brain: ObservableObject {
     func releaseModifiers() {
         clearEntryState()
         clearLoopModeLatches()
+        for (_, held) in touchDown {
+            engine.setAutoSuspend(track: held.track, lane: held.lane, suspended: false)
+        }
+        touchDown.removeAll()
+        touchedLanes.removeAll()
+        heldTracks.removeAll()
+        heldSetPads.removeAll()
         shiftHeld = false
         shiftLocked = false
         muteHeld = false

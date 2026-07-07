@@ -39,6 +39,8 @@ final class AudioEngine {
     private var duckEnv = [Float](repeating: 0, count: AudioEngine.maxTracks)
     private var duckSm = [Float](repeating: 1, count: AudioEngine.maxTracks)
     private var duckShared = [Float](repeating: 1, count: AudioEngine.maxTracks)
+    private var duckAmtScratch = [Float](repeating: 0, count: AudioEngine.maxTracks)
+    private var duckRelScratch = [Float](repeating: 1, count: AudioEngine.maxTracks)
     private var auBaseVol = [Float](repeating: 0.8, count: AudioEngine.maxTracks)
     private var duckTimer: DispatchSourceTimer?
     // Master set-effects state (Dynamics -> Saturator, manual 17.2).
@@ -358,9 +360,12 @@ final class AudioEngine {
         let tracks = song.tracks
         lock.unlock()
         for (t, mixer) in auMixers {
-            guard t < Self.maxTracks, tracks.indices.contains(t),
-                  tracks[t].duckSource != nil else { continue }
-            mixer.outputVolume = auBaseVol[t] * duck[t]
+            guard t < Self.maxTracks, tracks.indices.contains(t) else { continue }
+            if tracks[t].duckSource != nil {
+                mixer.outputVolume = auBaseVol[t] * duck[t]
+            } else if mixer.outputVolume != auBaseVol[t] {
+                mixer.outputVolume = auBaseVol[t]   // sidechain turned off: restore once
+            }
         }
     }
 
@@ -560,14 +565,14 @@ final class AudioEngine {
             trackGain[i] = i < song.tracks.count ? Float(song.tracks[i].volume) : 1
         }
 
-        // Sidechain per-block: release coefficient per target track.
-        var duckAmt = [Float](repeating: 0, count: Self.maxTracks)
-        var duckRel = [Float](repeating: 1, count: Self.maxTracks)
+        // Sidechain per-block: release coefficient per target track (reuse
+        // preallocated scratch — no render-thread allocation).
+        for i in 0..<Self.maxTracks { duckAmtScratch[i] = 0; duckRelScratch[i] = 1 }
         for (t, tr) in song.tracks.enumerated() where t < Self.maxTracks {
             if tr.duckSource != nil {
-                duckAmt[t] = Float(min(1, max(0, tr.duckAmount ?? 0.6)))
+                duckAmtScratch[t] = Float(min(1, max(0, tr.duckAmount ?? 0.6)))
                 let rel = max(0.05, tr.duckRelease ?? 0.25)
-                duckRel[t] = exp(-1.0 / (Float(rel) * Float(Self.sampleRate)))
+                duckRelScratch[t] = exp(-1.0 / (Float(rel) * Float(Self.sampleRate)))
             } else {
                 duckEnv[t] = 0
             }
@@ -622,9 +627,9 @@ final class AudioEngine {
             }
 
             // Sidechain envelopes: decay + smooth toward the duck gain.
-            for t in 0..<Self.maxTracks where duckAmt[t] > 0 || duckSm[t] < 0.999 {
-                duckEnv[t] *= duckRel[t]
-                let target = 1 - duckAmt[t] * duckEnv[t]
+            for t in 0..<Self.maxTracks where duckAmtScratch[t] > 0 || duckSm[t] < 0.999 {
+                duckEnv[t] *= duckRelScratch[t]
+                let target = 1 - duckAmtScratch[t] * duckEnv[t]
                 duckSm[t] += (target - duckSm[t]) * 0.008
             }
 
@@ -799,6 +804,7 @@ final class AudioEngine {
 
     private func observeInterruptions() {
         let center = NotificationCenter.default
+        center.removeObserver(self)   // media-reset calls start() again; don't stack observers
         center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
             guard let info = note.userInfo,
                   let raw = info[AVAudioSessionInterruptionTypeKey] as? UInt,

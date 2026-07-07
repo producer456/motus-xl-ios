@@ -41,6 +41,9 @@ final class Brain: ObservableObject {
     }
 
     let engine = AudioEngine()
+    let midi = MIDIManager()
+    private(set) var launchkey: LaunchkeyDriver?
+    var isRecording: Bool { recording }
 
     // ---- Song / state ----
     private(set) var song = Song()
@@ -213,6 +216,18 @@ final class Brain: ObservableObject {
         engine.setMainVolume(Float(mainVolume))
         uiTimer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
             .sink { [weak self] _ in self?.tick() }
+        // Launchkey Mini MK4 control surface (hot-pluggable).
+        let driver = LaunchkeyDriver(midi: midi)
+        driver.brain = self
+        launchkey = driver
+        midi.onMessage = { [weak self] message, source in
+            guard source.localizedCaseInsensitiveContains("launchkey") else { return }
+            MainActor.assumeIsolated { self?.launchkey?.handle(message) }
+        }
+        midi.onSetupChanged = { [weak self] in
+            MainActor.assumeIsolated { self?.launchkey?.connectIfPresent() }
+        }
+        midi.start()
         refresh()
     }
 
@@ -2121,6 +2136,112 @@ final class Brain: ObservableObject {
         showOverlay("MAIN VOLUME", mainVolume, String(format: "%.0f%%", mainVolume * 100))
     }
 
+    // MARK: - External control surface (Launchkey)
+
+    /// Keybed note -> selected track, recording/capturing like a pad hit.
+    /// Drum tracks map the keys chromatically onto the 16 cells from C2.
+    func externalNote(_ note: Int, velocity: Int, on: Bool) {
+        guard poweredOn, mode != .setOverview else { return }
+        if track.kind == .drum {
+            externalDrumCell(((note - 36) % 16 + 16) % 16, velocity: velocity, on: on)
+            return
+        }
+        if !on {
+            engine.liveNote(track: song.selectedTrack, kind: .synth, key: note, velocity: 0, on: false)
+            captureNoteOff(key: note)
+            recordRelease(key: note)
+            return
+        }
+        engine.liveNote(track: song.selectedTrack, kind: .synth, key: note, velocity: velocity, on: true)
+        captureNoteOn(key: note, velocity: velocity)
+        recordHit(key: note, velocity: velocity)
+    }
+
+    func externalDrumCell(_ cell: Int, velocity: Int, on: Bool) {
+        guard poweredOn, track.kind == .drum, (0..<16).contains(cell) else { return }
+        if !on {
+            heldDrumCells.remove(cell)
+            captureNoteOff(key: cell)
+            recordRelease(key: cell)
+            return
+        }
+        adjust { $0.tracks[$0.selectedTrack].selectedPad = cell }
+        heldDrumCells.insert(cell)
+        if repeatActive {
+            repeatVelocity = velocity
+            startRepeatChain()
+            return
+        }
+        engine.liveNote(track: song.selectedTrack, kind: .drum, key: cell, velocity: velocity, on: true)
+        captureNoteOn(key: cell, velocity: velocity)
+        recordHit(key: cell, velocity: velocity)
+    }
+
+    func externalTrackSelect(_ delta: Int) {
+        guard poweredOn else { return }
+        trackButton(min(song.tracks.count - 1, max(0, song.selectedTrack + delta)))
+    }
+
+    func externalParamBank(_ delta: Int) {
+        guard poweredOn else { return }
+        let t = song.selectedTrack
+        guard engine.hasAU(track: t) else { return }
+        let total = engine.auParameters(track: t).count
+        guard total > 0 else { return }
+        let banks = max(1, (total + 6) / 7)
+        let bank = (((auParamBank[t] ?? 0) + delta) % banks + banks) % banks
+        auParamBank[t] = bank
+        showOverlay("PARAM BANK \(bank + 1)/\(banks)", Double(bank + 1) / Double(banks),
+                    "\(bank * 7 + 1)-\(min(total, bank * 7 + 7)) OF \(total)")
+    }
+
+    func externalScene(_ delta: Int) {
+        guard poweredOn else { return }
+        adjust { $0.selectedScene = min(7, max(0, $0.selectedScene + delta)) }
+        showOverlay("SCENE \(song.selectedScene + 1)", Double(song.selectedScene + 1) / 8, "SELECTED")
+    }
+
+    /// Launch every track's clip in the selected scene (empty slots stop).
+    func launchCurrentScene() {
+        guard poweredOn else { return }
+        var any = false
+        for (t, tr) in song.tracks.enumerated() {
+            if tr.clips[song.selectedScene].isEmpty {
+                engine.stopTrack(t)
+            } else {
+                engine.launchClip(track: t, scene: song.selectedScene)
+                any = true
+            }
+        }
+        if any, !engine.isPlaying {
+            purgeGridCapture()
+            engine.setTransport(playing: true, fromStart: true)
+        }
+        refreshLeds()
+    }
+
+    /// Launch one track's clip in the selected scene (17.1 semantics).
+    func sessionLaunchTrack(_ t: Int) {
+        guard poweredOn, song.tracks.indices.contains(t) else { return }
+        adjust { $0.selectedTrack = t }
+        if song.tracks[t].clips[song.selectedScene].isEmpty {
+            engine.stopTrack(t)
+        } else {
+            engine.launchClip(track: t, scene: song.selectedScene)
+            if !engine.isPlaying {
+                purgeGridCapture()
+                engine.setTransport(playing: true, fromStart: true)
+            }
+        }
+        refreshLeds()
+    }
+
+    /// Pitch/mod strip passthrough — AU tracks only (David's call).
+    func auPassthrough(_ bytes: [UInt8]) {
+        guard poweredOn, engine.hasAU(track: song.selectedTrack) else { return }
+        engine.auSendMIDI(track: song.selectedTrack, bytes: bytes)
+    }
+
     // MARK: - Capture (manual 14.3)
 
     /// On-grid capture entries reference the transport's step clock; a
@@ -2348,6 +2469,7 @@ final class Brain: ObservableObject {
         barPage = min(barPage, min(track.clips[song.selectedScene].bars, 15))
         refreshScreen()
         refreshLeds()
+        launchkey?.refresh()
     }
 
     // XL display: 256x128 — menus get room, the main screen earns the extra

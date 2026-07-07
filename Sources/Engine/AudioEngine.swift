@@ -361,6 +361,18 @@ final class AudioEngine {
         auUnits[track]?.auAudioUnit.currentPreset
     }
 
+    /// Raw MIDI passthrough to a track's AU (pitch bend / mod / sustain from
+    /// an external keyboard). Schedule blocks are thread-safe.
+    func auSendMIDI(track: Int, bytes: [UInt8]) {
+        let t = max(0, min(Self.maxTracks - 1, track))
+        lock.lock()
+        let block = auSchedule[t]
+        lock.unlock()
+        guard let block, !bytes.isEmpty else { return }
+        var copy = bytes
+        block(AUEventSampleTimeImmediate, 0, copy.count, &copy)
+    }
+
     // MARK: - Render
 
     private func render(frameCount: Int, abl: UnsafeMutablePointer<AudioBufferList>) {

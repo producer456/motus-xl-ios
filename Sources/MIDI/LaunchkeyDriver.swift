@@ -37,10 +37,15 @@ final class LaunchkeyDriver {
     /// actual unit) — convert to deltas for Brain's relative encoder API.
     private var lastPot = [Int?](repeating: nil, count: 8)
 
+    static func matches(_ name: String) -> Bool {
+        let n = name.lowercased()
+        return n.contains("launchkey") || n.contains("lkmk4")
+    }
+
     init(midi: MIDIManager) { self.midi = midi }
 
     private func send(_ bytes: [UInt8]) {
-        midi.send(bytes, toPortMatchingAll: ["launchkey", "daw"])
+        midi.send(bytes, toPortMatchingAll: ["launchkey|lkmk4", "daw"])
     }
     private func sysex(_ body: [UInt8]) {
         send([0xF0, 0x00, 0x20, 0x29, 0x02, 0x13] + body + [0xF7])
@@ -49,7 +54,7 @@ final class LaunchkeyDriver {
     // MARK: - Lifecycle
 
     func connectIfPresent() {
-        let present = midi.sourceNames.contains { $0.localizedCaseInsensitiveContains("launchkey") }
+        let present = midi.sourceNames.contains { Self.matches($0) }
         if present && !connected { connect() }
         if !present && connected { drop() }
     }
@@ -106,8 +111,7 @@ final class LaunchkeyDriver {
         // Keybed lives on the MIDI port; only the DAW port carries pads —
         // keeps high keybed notes (96-119) from being eaten as pad hits.
         let padCapable = isDAWPort || !midi.sourceNames.contains {
-            $0.localizedCaseInsensitiveContains("launchkey")
-                && $0.localizedCaseInsensitiveContains("daw")
+            Self.matches($0) && $0.localizedCaseInsensitiveContains("daw")
         }
         switch message {
         case let .controlChange(cc, value, ch):

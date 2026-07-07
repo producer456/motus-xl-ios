@@ -52,15 +52,20 @@ final class MIDIManager {
         guard outputPort != 0, !bytes.isEmpty else { return false }
         let cacheKey = needles.joined(separator: "|")
         if let cached = destCache[cacheKey] { return rawSend(bytes, to: cached) }
+        // Each needle may hold "|"-separated aliases (e.g. "launchpad|lpminimk3"
+        // — Novation ports often enumerate WITHOUT the product name).
+        func hit(_ nm: String, _ needle: String) -> Bool {
+            needle.lowercased().split(separator: "|").contains { nm.contains($0) }
+        }
         var fallback: MIDIEndpointRef?
         for i in 0..<MIDIGetNumberOfDestinations() {
             let dst = MIDIGetDestination(i)
             let nm = displayName(of: dst).lowercased()
-            if needles.allSatisfy({ nm.contains($0.lowercased()) }) {
+            if needles.allSatisfy({ hit(nm, $0) }) {
                 destCache[cacheKey] = dst
                 return rawSend(bytes, to: dst)
             }
-            if let first = needles.first, nm.contains(first.lowercased()), fallback == nil { fallback = dst }
+            if let first = needles.first, hit(nm, first), fallback == nil { fallback = dst }
         }
         // Fallback is NOT cached: during USB enumeration the wrong sibling
         // port can appear first and would otherwise stick forever.

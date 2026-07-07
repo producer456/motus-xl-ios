@@ -19,23 +19,29 @@ final class LaunchpadDriver {
     /// Top row CCs: up down left right session drums keys user.
     private let topCC: [UInt8] = [91, 92, 93, 94, 95, 96, 97, 98]
 
+    /// Port names vary: "Launchpad Mini MK3 ..." or bare "LPMiniMK3 MIDI".
+    static func matches(_ name: String) -> Bool {
+        let n = name.lowercased()
+        return n.contains("launchpad") || n.contains("lpmini")
+    }
+
     init(midi: MIDIManager) { self.midi = midi }
 
     private func send(_ bytes: [UInt8]) {
-        midi.send(bytes, toPortMatchingAll: ["launchpad", "midi"])
+        midi.send(bytes, toPortMatchingAll: ["launchpad|lpminimk3", "midi"])
     }
     private func sysex(_ body: [UInt8]) {
         send([0xF0, 0x00, 0x20, 0x29, 0x02, 0x0D] + body + [0xF7])
     }
 
     func connectIfPresent() {
-        let present = midi.sourceNames.contains { $0.localizedCaseInsensitiveContains("launchpad") }
+        let present = midi.sourceNames.contains { Self.matches($0) }
         if present {
             // Re-send programmer mode on every setup change: during USB
             // enumeration the destination may not exist yet, so a single
             // latched attempt can be lost forever. Latch only on success.
             let sent = midi.send([0xF0, 0x00, 0x20, 0x29, 0x02, 0x0D, 0x0E, 0x01, 0xF7],
-                                 toPortMatchingAll: ["launchpad", "midi"])
+                                 toPortMatchingAll: ["launchpad|lpminimk3", "midi"])
             if sent {
                 if !connected { brain?.surfaceChanged("LAUNCHPAD MINI", connected: true) }
                 connected = true

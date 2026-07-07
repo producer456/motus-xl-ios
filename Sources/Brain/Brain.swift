@@ -233,14 +233,32 @@ final class Brain: ObservableObject {
         pad.brain = self
         launchpad = pad
         midi.onMessage = { [weak self] message, source in
-            if source.localizedCaseInsensitiveContains("launchkey") {
-                let isDAW = source.localizedCaseInsensitiveContains("daw")
-                MainActor.assumeIsolated { self?.launchkey?.handle(message, isDAWPort: isDAW) }
-            } else if source.localizedCaseInsensitiveContains("launchpad"),
-                      !source.localizedCaseInsensitiveContains("daw") {
-                // Programmer mode lives on the MIDI port; the DAW port only
-                // carries session-layout junk before the mode switch lands.
-                MainActor.assumeIsolated { self?.launchpad?.handle(message) }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if LaunchkeyDriver.matches(source) {
+                    let isDAW = source.localizedCaseInsensitiveContains("daw")
+                    self.launchkey?.handle(message, isDAWPort: isDAW)
+                } else if LaunchpadDriver.matches(source) {
+                    // Programmer mode lives on the MIDI port; the DAW port
+                    // only carries session-layout junk pre-mode-switch.
+                    if !source.localizedCaseInsensitiveContains("daw") {
+                        self.launchpad?.handle(message)
+                    }
+                } else {
+                    // Unknown controller: play it as a plain keyboard so ANY
+                    // MIDI device makes sound instead of being dropped.
+                    switch message {
+                    case let .noteOn(note, velocity, _):
+                        self.externalNote(Int(note), velocity: Int(velocity), on: true)
+                    case let .noteOff(note, _):
+                        self.externalNote(Int(note), velocity: 0, on: false)
+                    case let .controlChange(cc, value, _) where cc == 1 || cc == 64:
+                        self.auPassthrough([0xB0, cc, value])
+                    case let .pitchBend(value, _):
+                        self.auPassthrough([0xE0, UInt8(value & 0x7F), UInt8((value >> 7) & 0x7F)])
+                    default: break
+                    }
+                }
             }
         }
         midi.onSetupChanged = { [weak self] in
@@ -2658,7 +2676,10 @@ final class Brain: ObservableObject {
                 if setupRow == i { s.fillRect(4, y - 6, 248, 20) }
                 s.text(row, x: 12, y: y, size: 2, invert: setupRow == i)
             }
-            s.textCentered("TURN=SET PRESS=SWAP", y: 108)
+            let sources = midi.sourceNames
+            s.text(sources.isEmpty ? "MIDI: NONE"
+                   : String(("MIDI: " + sources.map { String($0.prefix(12)) }.joined(separator: ",")).prefix(40)),
+                   x: 8, y: 108)
         case .powerConfirm:
             s.textCentered("POWER OFF?", y: 30, size: 2)
             s.textCentered("PRESS WHEEL TO CONFIRM", y: 66)

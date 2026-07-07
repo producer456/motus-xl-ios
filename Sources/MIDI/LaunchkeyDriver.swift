@@ -396,7 +396,9 @@ final class LaunchkeyDriver {
                 let src = (flipV ? row : 63 - row) * 128   // CG is bottom-up
                 for col in 0..<128 where px[src + col] > 90 {
                     let dcol = flipH ? 127 - col : col
-                    packed[row * 19 + dcol / 7] |= UInt8(0x40) >> UInt8(dcol % 7)
+                    // LSB = LEFTMOST pixel of each 7-px group (hardware-
+                    // verified: MSB-first mirrored every glyph individually).
+                    packed[row * 19 + dcol / 7] |= UInt8(1) << UInt8(dcol % 7)
                 }
             }
         }

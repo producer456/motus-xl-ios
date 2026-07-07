@@ -1,0 +1,65 @@
+name: Release
+
+# Cut a public release by pushing a version tag, e.g.:
+#   git tag v1.0.0 && git push origin v1.0.0
+# Personal build-* tags do NOT trigger this.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  PROJECT: MotusXL.xcodeproj
+  SCHEME: MotusXL
+  APP: MotusXL.app
+
+jobs:
+  build-unsigned-ipa:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build unsigned app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build
+
+      - name: Package unsigned .ipa
+        run: |
+          set -euo pipefail
+          APP_PATH="build/Build/Products/Release-iphoneos/$APP"
+          [ -d "$APP_PATH" ] || { echo "Missing $APP_PATH"; ls -R build/Build/Products || true; exit 1; }
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -qry "${SCHEME}-${GITHUB_REF_NAME}-unsigned.ipa" Payload
+
+      - name: Publish to Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.ipa"
+          body: |
+            Unsigned `.ipa` — **not** from the App Store and **not** signed.
+
+            To install, re-sign it with your own free Apple ID using a sideloading
+            tool such as AltStore, SideStore, or Sideloadly. This app is an
+            independent project and is not affiliated with or endorsed by Ableton AG.

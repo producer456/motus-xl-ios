@@ -24,7 +24,9 @@ final class Brain: ObservableObject {
     @Published var auIcons: [Int: UIImage] = [:]
     /// Hardware-theme chassis color (palette index, persisted).
     @Published var chassisColorIndex = UserDefaults.standard.integer(forKey: "theme.color")
-    private var setupEditingTheme = true
+    private var setupRow = 0   // 0 theme, 1 color, 2 hidden plugins
+    /// AUs the user hid from the browser (Delete + wheel press on the entry).
+    private var hiddenAUs: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "au.hidden") ?? [])
 
     static let chassisColors: [(name: String, rgb: SIMD3<Double>)] = [
         ("BLACK",    SIMD3(0.095, 0.095, 0.102)),
@@ -285,7 +287,16 @@ final class Brain: ObservableObject {
     private func browserEntries() -> [String] {
         if track.kind == .drum { return DrumKits.names }
         return SynthPreset.all.map(\.name)
-            + auComponents.map { "\($0.name) - \($0.manufacturerName)" }
+            + visibleAUs.map { "\($0.name) - \($0.manufacturerName)" }
+    }
+
+    private static func auID(_ c: AVAudioUnitComponent) -> String {
+        let d = c.audioComponentDescription
+        return "\(d.componentType):\(d.componentSubType):\(d.componentManufacturer)"
+    }
+
+    private var visibleAUs: [AVAudioUnitComponent] {
+        auComponents.filter { !hiddenAUs.contains(Self.auID($0)) }
     }
 
     private static func auDescription(from id: String) -> AudioComponentDescription? {
@@ -1701,6 +1712,14 @@ final class Brain: ObservableObject {
             let entries = browserEntries()
             guard !entries.isEmpty else { menu = .none; break }
             let chosen = ((browserIndex % entries.count) + entries.count) % entries.count
+            // Delete + wheel press on an AU entry hides it from the browser.
+            if deleteHeld, track.kind == .synth, chosen >= SynthPreset.all.count {
+                let component = visibleAUs[chosen - SynthPreset.all.count]
+                hiddenAUs.insert(Self.auID(component))
+                UserDefaults.standard.set(Array(hiddenAUs), forKey: "au.hidden")
+                showOverlay("PLUGIN HIDDEN", 0, String(component.name.prefix(18)))
+                return
+            }
             // Autoload preview already set soundIndex without an undo entry;
             // rewind to the original first so the commit is a real undo step.
             if autoloadOn, let original = browserOriginalSound {
@@ -1709,7 +1728,7 @@ final class Brain: ObservableObject {
             browserOriginalSound = nil
             menu = .none
             if track.kind == .synth && chosen >= SynthPreset.all.count {
-                selectAU(auComponents[chosen - SynthPreset.all.count],
+                selectAU(visibleAUs[chosen - SynthPreset.all.count],
                          forTrack: song.selectedTrack)
             } else {
                 engine.removeAU(track: song.selectedTrack)
@@ -1751,7 +1770,7 @@ final class Brain: ObservableObject {
         case .workflow:
             workflowRow = (workflowRow + 1) % 4
         case .setup:
-            setupEditingTheme.toggle()
+            setupRow = (setupRow + 1) % 3
         default:
             menu = .none
         }
@@ -1935,13 +1954,20 @@ final class Brain: ObservableObject {
         case .powerConfirm:
             break
         case .setup:
-            if setupEditingTheme {
+            switch setupRow {
+            case 0:
                 themeStyle = ((themeStyle + (delta > 0 ? 1 : -1)) % 3 + 3) % 3
                 UserDefaults.standard.set(themeStyle, forKey: "theme.style")
-            } else {
+            case 1:
                 let count = Self.chassisColors.count
                 chassisColorIndex = ((chassisColorIndex + delta) % count + count) % count
                 UserDefaults.standard.set(chassisColorIndex, forKey: "theme.color")
+            default:
+                guard !hiddenAUs.isEmpty else { break }
+                let n = hiddenAUs.count
+                hiddenAUs.removeAll()
+                UserDefaults.standard.removeObject(forKey: "au.hidden")
+                showOverlay("PLUGINS", 1, "\(n) RESTORED")
             }
             refresh()
         case .metronome, .message:
@@ -2604,10 +2630,14 @@ final class Brain: ObservableObject {
             let colorName = Self.chassisColors[((chassisColorIndex % Self.chassisColors.count)
                 + Self.chassisColors.count) % Self.chassisColors.count].name
             let themeName = ["HARDWARE", "BARE", "VINTAGE"][((themeStyle % 3) + 3) % 3]
-            if setupEditingTheme { s.fillRect(4, 44, 248, 22) }
-            s.text("THEME  \(themeName)", x: 12, y: 50, size: 2, invert: setupEditingTheme)
-            if !setupEditingTheme { s.fillRect(4, 70, 248, 22) }
-            s.text("COLOR  \(colorName)", x: 12, y: 76, size: 2, invert: !setupEditingTheme)
+            let rows = ["THEME  \(themeName)", "COLOR  \(colorName)",
+                        hiddenAUs.isEmpty ? "AU HIDDEN  NONE"
+                                          : "AU HIDDEN  \(hiddenAUs.count) TURN=RESTORE"]
+            for (i, row) in rows.enumerated() {
+                let y = 40 + i * 22
+                if setupRow == i { s.fillRect(4, y - 6, 248, 20) }
+                s.text(row, x: 12, y: y, size: 2, invert: setupRow == i)
+            }
             s.textCentered("TURN=SET PRESS=SWAP", y: 108)
         case .powerConfirm:
             s.textCentered("POWER OFF?", y: 30, size: 2)

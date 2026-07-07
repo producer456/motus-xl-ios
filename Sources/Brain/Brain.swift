@@ -2434,7 +2434,7 @@ final class Brain: ObservableObject {
             }
             guard anyInWindow else { showOverlay("CAPTURE", 0, "NOTHING IN WINDOW"); return }
         } else {
-            let cutoff = Date.timeIntervalSinceReferenceDate - 16
+            let cutoff = Date.timeIntervalSinceReferenceDate - 120
             guard captureBuffer.contains(where: { !$0.onGrid && $0.start >= cutoff }) else {
                 showOverlay("CAPTURE", 0, "NOTHING IN WINDOW"); return
             }
@@ -2461,18 +2461,28 @@ final class Brain: ObservableObject {
                     involved.insert(note.track)
                 }
             } else {
-                // Free-time pass: quantize the last 16 seconds at current tempo.
-                let cutoff = Date.timeIntervalSinceReferenceDate - 16
-                let phrase = captureBuffer.filter { !$0.onGrid && $0.start >= cutoff }
-                guard let t0 = phrase.map(\.start).min() else { return }
-                // Tempo detection: treat the median gap between onsets as a
-                // 16th note and fold the implied tempo into a musical range.
-                if let bpm = Self.detectTempo(onsets: phrase.map(\.start).sorted()) {
-                    song.tempo = bpm
+                // Free-time pass (AUSeq's model, device-proven): trim to the
+                // trailing phrase, then fit a tempo + bar count to its span.
+                let cutoff = Date.timeIntervalSinceReferenceDate - 120
+                var phrase = captureBuffer.filter { !$0.onGrid && $0.start >= cutoff }
+                    .sorted { $0.start < $1.start }
+                // Walk back from the last note; a rest (prev END -> next
+                // start) over 2s marks where the real take began.
+                if phrase.count > 1 {
+                    var startIdx = 0
+                    for i in stride(from: phrase.count - 1, to: 0, by: -1) {
+                        let rest = phrase[i].start - (phrase[i - 1].start + phrase[i - 1].length)
+                        if rest > 2.0 { startIdx = i; break }
+                    }
+                    phrase = Array(phrase[startIdx...])
                 }
+                guard let t0 = phrase.map(\.start).min() else { return }
+                let spanSec = max(0.05, (phrase.map { $0.start + $0.length }.max() ?? t0) - t0)
+                let fit = Self.fitTempo(spanSeconds: spanSec, noteCount: phrase.count,
+                                        singleDur: phrase.first?.length ?? 1)
+                song.tempo = fit.bpm
                 let stepsPerSecond = song.tempo / 60 * 4
-                let maxStep = phrase.map { (($0.start - t0) * stepsPerSecond).rounded() }.max() ?? 0
-                let bars = min(16, max(1, Int(maxStep) / 16 + 1))
+                let bars = min(16, fit.bars)
                 for note in phrase {
                     guard song.tracks.indices.contains(note.track) else { continue }
                     var clip = song.tracks[note.track].clips[song.selectedScene]
@@ -2495,24 +2505,41 @@ final class Brain: ObservableObject {
         captureBuffer.removeAll()
         captureOpen.removeAll()
         if !wasPlaying { engine.setTransport(playing: true, fromStart: true) }
-        showOverlay("CAPTURED", 1, "\(involved.count) TRACK\(involved.count > 1 ? "S" : "")")
+        showOverlay("CAPTURED", 1, wasPlaying
+                    ? "\(involved.count) TRACK\(involved.count > 1 ? "S" : "")"
+                    : "\(Int(song.tempo)) BPM - \(involved.count) TRACK\(involved.count > 1 ? "S" : "")")
     }
 
-    /// Median inter-onset interval read as a 16th note, folded into
-    /// 70-180 BPM. Needs a few hits to say anything.
-    private static func detectTempo(onsets: [Double]) -> Double? {
-        guard onsets.count >= 4 else { return nil }
-        var gaps: [Double] = []
-        for i in 1..<onsets.count {
-            let gap = onsets[i] - onsets[i - 1]
-            if gap > 0.08, gap < 3 { gaps.append(gap) }
+    /// AUSeq's tempo model (matches Ableton's): assume 4/4 and that the
+    /// player ended near a downbeat; try musically likely bar counts against
+    /// the phrase span and prefer 80-160 BPM, powers of two, and ~120.
+    private static func fitTempo(spanSeconds: Double, noteCount: Int,
+                                 singleDur: Double) -> (bpm: Double, bars: Int) {
+        if noteCount == 1 {                    // one note: its length is the loop
+            return foldToRange(barSeconds: max(0.05, singleDur))
         }
-        guard gaps.count >= 3 else { return nil }
-        let median = gaps.sorted()[gaps.count / 2]
-        var bpm = 15.0 / median
-        while bpm > 180 { bpm /= 2 }
-        while bpm < 70 { bpm *= 2 }
-        return bpm.rounded()
+        var best: (bpm: Double, bars: Int, score: Double)?
+        for bars in [1, 2, 4, 8, 16, 3, 6] {
+            let tempo = Double(bars) * 4 * 60 / spanSeconds
+            guard tempo >= 55, tempo <= 220 else { continue }
+            let outOfRange = (tempo >= 80 && tempo <= 160) ? 0.0 : 1000.0
+            let nonPow2 = [1, 2, 4, 8, 16].contains(bars) ? 0.0 : 6.0
+            let score = outOfRange + nonPow2 + abs(tempo - 120)
+            if best == nil || score < best!.score {
+                best = (tempo.rounded(), bars, score)
+            }
+        }
+        if let b = best { return (min(160, max(80, b.bpm)), b.bars) }
+        return foldToRange(barSeconds: spanSeconds)
+    }
+
+    /// Treat the span as one bar; double/halve until the tempo lands in 80-160.
+    private static func foldToRange(barSeconds: Double) -> (bpm: Double, bars: Int) {
+        var tempo = 4 * 60.0 / max(0.05, barSeconds)
+        var bars = 1
+        while tempo < 80 { tempo *= 2; bars *= 2 }
+        while tempo > 160 { tempo /= 2; bars = max(1, bars / 2) }
+        return (tempo.rounded(), min(16, max(1, bars)))
     }
 
     // MARK: - Undo / persistence

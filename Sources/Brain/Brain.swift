@@ -2542,7 +2542,9 @@ final class Brain: ObservableObject {
                 best = (tempo.rounded(), bars, score)
             }
         }
-        if let b = best { return (min(160, max(80, b.bpm)), b.bars) }
+        // Return the FIT tempo unclamped — clamping without refitting bars
+        // would desync note placement from the span on long takes.
+        if let b = best { return (b.bpm, b.bars) }
         return foldToRange(barSeconds: spanSeconds)
     }
 
@@ -2550,9 +2552,9 @@ final class Brain: ObservableObject {
     private static func foldToRange(barSeconds: Double) -> (bpm: Double, bars: Int) {
         var tempo = 4 * 60.0 / max(0.05, barSeconds)
         var bars = 1
-        while tempo < 80 { tempo *= 2; bars *= 2 }
+        while tempo < 80 && bars < 16 { tempo *= 2; bars *= 2 }   // 16-bar cap
         while tempo > 160 { tempo /= 2; bars = max(1, bars / 2) }
-        return (tempo.rounded(), min(16, max(1, bars)))
+        return (tempo.rounded(), max(1, bars))
     }
 
     // MARK: - Undo / persistence
@@ -2660,7 +2662,7 @@ final class Brain: ObservableObject {
                 mainScreen(&s)
                 s.fillRect(0, 100, 256, 28)
                 s.text(String(overlay.title.prefix(14)), x: 6, y: 106, size: 2, invert: true)
-                s.text(String(overlay.label.prefix(8)), x: 186, y: 106, size: 2, invert: true)
+                s.text(String(overlay.label.prefix(12)), x: 182, y: 108, size: 1, invert: true)
                 let w = Int(244 * min(1, max(0, overlay.value)))
                 if w > 0 { s.invertRegion(6, 122, w, 4) }
             } else {

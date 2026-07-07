@@ -60,12 +60,27 @@ struct DockView: View {
                     chip("\(Scales.noteNames[song.rootNote]) \(Scales.all[song.scaleIndex].name.uppercased())", s: s)
                 }
                 chip("SCENE \(song.selectedScene + 1)", s: s)
-                Button { client.openShiftMenu(1) } label: {
+                Button { client.openShiftMenu(0) } label: {   // Set Overview
                     Image(systemName: "square.grid.2x2")
                         .font(.system(size: 14 * s))
                         .foregroundStyle(.white.opacity(0.6))
                 }
-                Button { client.openShiftMenu(2) } label: {
+                Button { client.openShiftMenu(5) } label: {   // Metronome
+                    Image(systemName: "metronome.fill")
+                        .font(.system(size: 14 * s))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+                Button { client.openShiftMenu(10) } label: {  // Repeat / Arp
+                    Image(systemName: "repeat.1")
+                        .font(.system(size: 14 * s))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+                Button { client.openShiftMenu(2) } label: {   // Workflow
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 14 * s))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+                Button { client.openShiftMenu(1) } label: {   // Setup
                     Image(systemName: "gearshape.fill")
                         .font(.system(size: 14 * s))
                         .foregroundStyle(.white.opacity(0.6))

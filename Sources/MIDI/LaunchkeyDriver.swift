@@ -37,9 +37,9 @@ final class LaunchkeyDriver {
     /// actual unit) — convert to deltas for Brain's relative encoder API.
     private var lastPot = [Int?](repeating: nil, count: 8)
     /// OLED bitmap orientation (bit0 flipV, bit1 flipH) — tuned from Setup.
-    var bitmapOrient = UserDefaults.standard.integer(forKey: "lk.orient") {
+    var bitmapOrient = UserDefaults.standard.integer(forKey: "lk.orient2") {
         didSet {
-            UserDefaults.standard.set(bitmapOrient, forKey: "lk.orient")
+            UserDefaults.standard.set(bitmapOrient, forKey: "lk.orient2")
             lastBitmap.removeAll()          // force an immediate repaint
             lastBitmapAt = .distantPast
         }
@@ -77,6 +77,8 @@ final class LaunchkeyDriver {
         layer = .session
         lastRGB.removeAll(); lastPulse.removeAll(); lastButton.removeAll()
         lastBitmap.removeAll()
+        lastPot = [Int?](repeating: nil, count: 8)   // stale values jump params
+        lastParam = ""
         popup("MOTUS XL", "CONNECTED")
         brain?.surfaceChanged("LAUNCHKEY MK4", connected: true)
         refresh()
@@ -183,6 +185,7 @@ final class LaunchkeyDriver {
             brain.externalNote(Int(note), velocity: Int(velocity), on: true)
         case let .noteOff(note, ch):
             if ch == 9 {
+                if layer == .drum, brain.menuOpen, note == drumBase + 11 { return }
                 if layer == .drum, note >= drumBase, note < drumBase + 16 {
                     brain.externalDrumCell(Int(note - drumBase), velocity: 0, on: false)
                 }
@@ -418,7 +421,9 @@ final class LaunchkeyDriver {
     /// Mirror the XL's 256x128 OLED to the hardware's 128x64 as a bitmap
     /// (2:1 downsample, threshold, 7px/byte MSB-left, 19 bytes x 64 rows).
     private func mirrorDisplay(_ image: CGImage?) {
-        guard let image, Date().timeIntervalSince(lastBitmapAt) > 0.15 else { return }
+        // No time throttle: the packed-bytes dedupe below is the gate, so
+        // the final frame of a fast wheel scroll can never be dropped.
+        guard let image else { return }
         var gray = [UInt8](repeating: 0, count: 128 * 64)
         var packed = [UInt8](repeating: 0, count: 1216)
         gray.withUnsafeMutableBytes { raw in

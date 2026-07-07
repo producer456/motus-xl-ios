@@ -286,10 +286,9 @@ final class Brain: ObservableObject {
             }
         }
         midi.start()
-        if ProcessInfo.processInfo.arguments.contains("-hwsim") {
-            launchpadOn = true   // visual test of the docked phone layout
-            launchkeyOn = true
-        }
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("-hwsim") { launchpadOn = true }   // pad-only deck
+        if args.contains("-hwsim2") { launchpadOn = true; launchkeyOn = true }
         refresh()
     }
 

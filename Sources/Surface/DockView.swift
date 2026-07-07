@@ -71,16 +71,33 @@ struct DockView: View {
                         .foregroundStyle(.white.opacity(0.6))
                 }
             }
-            .padding(.horizontal, 18 * s)
+            .padding(.horizontal, 36 * s)
             .padding(.top, 10 * s)
 
             // ---- Center: menu screen when needed, else the track cards ----
             if client.menuOpen || client.overlayActive {
                 DisplayView(image: client.displayImage, tilt: motion.tilt)
-                    .frame(width: 560 * s, height: 280 * s)
+                    .frame(width: (client.launchkeyOn ? 560 : 440) * s,
+                           height: (client.launchkeyOn ? 280 : 220) * s)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 trackCards(song: song, s: s)
+            }
+
+            // Launchpad-only rig: the deck carries what nothing covers —
+            // the 8 encoders (+ volume) and transport.
+            if !client.launchkeyOn {
+                HStack(spacing: 16 * s) {
+                    FunctionButton(id: "play", systemImage: "play.fill", diameter: 40 * s, litColor: .green)
+                    FunctionButton(id: "record", systemImage: "circle.fill", diameter: 40 * s, litColor: .red)
+                    Spacer()
+                    ForEach(0..<8, id: \.self) { i in
+                        EncoderView(index: i, diameter: 40 * s, tilt: motion.tilt)
+                    }
+                    Spacer()
+                    EncoderView(index: 8, diameter: 40 * s, tilt: motion.tilt)
+                }
+                .padding(.horizontal, 40 * s)
             }
 
             // ---- Bottom bar: only what hardware can't do ----
@@ -185,7 +202,9 @@ struct DockView: View {
                         }
                     }
                     .padding(10 * s)
-                    .frame(maxWidth: .infinity, minHeight: 118 * s, alignment: .topLeading)
+                    .frame(maxWidth: .infinity,
+                           minHeight: (client.launchkeyOn ? 118 : 88) * s,
+                           alignment: .topLeading)
                     .background(
                         RoundedRectangle(cornerRadius: 12 * s)
                             .fill(Color(white: selected ? 0.14 : 0.085))
@@ -199,7 +218,7 @@ struct DockView: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 18 * s)
+        .padding(.horizontal, 36 * s)
     }
 
     private func soundName(_ track: Track) -> String {

@@ -18,9 +18,10 @@ struct PhonePanelView: View {
     static let designSize = CGSize(width: 932, height: 430)
 
     var body: some View {
-        // Full rig docked (Launchpad grid + Launchkey keys): the panel replica
-        // retires and the color command deck takes over.
-        if client.launchpadOn && client.launchkeyOn {
+        // Launchpad docked: the panel replica retires and the color command
+        // deck takes over (it grows knobs/transport until a Launchkey also
+        // connects and covers them).
+        if client.launchpadOn {
             DockView()
         } else {
             panelBody

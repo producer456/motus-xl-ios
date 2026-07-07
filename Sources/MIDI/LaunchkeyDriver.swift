@@ -235,11 +235,12 @@ final class LaunchkeyDriver {
             } else {
                 brain.externalTrackSelect(dir)
             }
-        case 0x33: if down { brain.externalParamBank(-1) }     // arrow up
-        case 0x34: if down { brain.externalParamBank(1) }      // arrow down
+        case 0x33: if down { shiftHeld ? brain.hwLoopResize(1) : brain.externalParamBank(-1) }
+        case 0x34: if down { shiftHeld ? brain.hwLoopResize(-1) : brain.externalParamBank(1) }
         case 0x68:                                             // pad-mode button
             guard down else { return true }
-            if shiftHeld { brain.launchCurrentScene() } else { cycleLayer() }
+            // Shift = jump the app into/out of Session; plain = cycle pad layers.
+            if shiftHeld { brain.hwToggleSession() } else { cycleLayer() }
         default: return false
         }
         return true

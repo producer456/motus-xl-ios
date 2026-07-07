@@ -89,10 +89,12 @@ final class LaunchpadDriver {
                 return
             }
             switch cc {
-            case 91: brain.button("plus", down: true); brain.button("plus", down: false)
-            case 92: brain.button("minus", down: true); brain.button("minus", down: false)
-            case 93: brain.button("left", down: true); brain.button("left", down: false)
-            case 94: brain.button("right", down: true); brain.button("right", down: false)
+            // Top row = the hands-free workflow (the grid already spans ~8
+            // octaves in In-Key, so octave/bar-page aren't needed here).
+            case 91: brain.hwLoopResize(1)                 // up    -> loop +
+            case 92: brain.hwLoopResize(-1)                // down  -> loop -
+            case 93: brain.hwPatchStep(-1)                 // left  -> prev patch
+            case 94: brain.hwPatchStep(1)                  // right -> next patch
             case 95: brain.button("note", down: true)      // session/note toggle
             case 96: brain.button("play", down: true)      // "drums" -> play
             case 97: brain.button("record", down: true)    // "keys" -> record

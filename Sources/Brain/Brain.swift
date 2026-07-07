@@ -2358,6 +2358,54 @@ final class Brain: ObservableObject {
                     "\(bank * 7 + 1)-\(min(total, bank * 7 + 7)) OF \(total)")
     }
 
+    /// Hardware: resize the selected clip's loop by whole bars (1-16),
+    /// respecting the loop start. Works without opening the loop menu, so
+    /// either controller can do it hands-free.
+    func hwLoopResize(_ delta: Int) {
+        guard poweredOn, mode == .note else { return }
+        let clip0 = track.clips[song.selectedScene]
+        let minBars = (clip0.loopStart ?? 0) + 1
+        let newBars = max(minBars, min(16, clip0.bars + delta))
+        guard newBars != clip0.bars else { return }
+        edit { song in
+            var clip = song.tracks[song.selectedTrack].clips[song.selectedScene]
+            if newBars < clip.bars { clip.notes.removeAll { $0.step >= newBars * 16 } }
+            clip.bars = newBars
+            song.tracks[song.selectedTrack].clips[song.selectedScene] = clip
+        }
+        showOverlay("LOOP", Double(newBars) / 16, "\(newBars) BAR\(newBars > 1 ? "S" : "")")
+    }
+
+    /// Hardware: step the selected track's sound/preset and load it now (the
+    /// Launchpad has no wheel, so patch change lives on its arrows).
+    func hwPatchStep(_ delta: Int) {
+        guard poweredOn else { return }
+        let t = song.selectedTrack
+        if engine.hasAU(track: t) {
+            let presets = engine.auPresets(track: t)
+            guard !presets.isEmpty else { showOverlay("PRESET", 0, "NONE"); return }
+            let cur = presets.firstIndex { $0.name == track.auPresetName } ?? 0
+            let next = ((cur + delta) % presets.count + presets.count) % presets.count
+            let preset = presets[next]
+            engine.setAUPreset(track: t, preset: preset)
+            edit { $0.tracks[t].auPresetName = preset.name }
+            showOverlay("PRESET", Double(next + 1) / Double(presets.count), String(preset.name.prefix(18)))
+            return
+        }
+        let isDrum = track.kind == .drum
+        let count = isDrum ? DrumKits.names.count : SynthPreset.all.count
+        guard count > 0 else { return }
+        let cur = track.soundIndex
+        let next = ((cur + delta) % count + count) % count
+        edit { $0.tracks[t].soundIndex = next }
+        if isDrum { loadKit(track: t, index: next) }
+        let name = isDrum ? DrumKits.names[next] : SynthPreset.all[next].name
+        showOverlay(isDrum ? "KIT" : "SOUND", Double(next + 1) / Double(count), String(name.prefix(18)))
+    }
+
+    /// Hardware: toggle Note <-> Session so either controller reaches session.
+    func hwToggleSession() { button("note", down: true) }
+
     func externalScene(_ delta: Int) {
         guard poweredOn else { return }
         adjust { $0.selectedScene = min(7, max(0, $0.selectedScene + delta)) }

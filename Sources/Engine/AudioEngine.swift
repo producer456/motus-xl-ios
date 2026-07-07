@@ -499,6 +499,18 @@ final class AudioEngine {
 
         let framesPerStep = Self.sampleRate * 60 / max(20, song.tempo) / 4
         let stepInc = 1.0 / framesPerStep
+        // Set effects: constants for this block (hoisted off the frame loop).
+        let fx = song.fxParams ?? Self.fxDefaults
+        let fxOn = fx.count >= 6
+        let fxThresh: Float = fxOn ? pow(10, Float(fx[0]) / 20) : 1
+        let fxRatio: Float = fxOn ? max(1, Float(fx[1])) : 1
+        let fxMakeup: Float = fxOn ? pow(10, Float(fx[2]) / 20) : 1
+        let fxDrive: Float = fxOn ? max(1, Float(fx[3])) : 1
+        let fxTone: Float = fxOn ? 0.10 + 0.88 * Float(fx[4]) : 1
+        let fxMix: Float = fxOn ? Float(fx[5]) : 0
+        if !compEnv.isFinite { compEnv = 0 }
+        if !satLPl.isFinite { satLPl = 0 }
+        if !satLPr.isFinite { satLPr = 0 }
         var wetL: Float = 0, wetR: Float = 0
         // Per-track gain, applied at the voice sum (preallocated scratch).
         for i in 0..<Self.maxTracks {
@@ -591,27 +603,20 @@ final class AudioEngine {
             l += dl * 0.8; r += dr * 0.8
 
             // Set effects (manual 17.2): Dynamics -> Saturator, then limiter.
-            let fx = song.fxParams ?? Self.fxDefaults
-            if fx.count >= 6 {
-                let thresh = pow(10, Float(fx[0]) / 20)
-                let ratio = max(1, Float(fx[1]))
-                let makeup = pow(10, Float(fx[2]) / 20)
+            if fxOn {
                 let peak = max(abs(l), abs(r))
                 compEnv = max(peak, compEnv * 0.9995)
                 var gain: Float = 1
-                if compEnv > thresh, ratio > 1 {
-                    gain = pow(compEnv / thresh, 1 / ratio - 1)
+                if compEnv > fxThresh, fxRatio > 1 {
+                    gain = pow(compEnv / fxThresh, 1 / fxRatio - 1)
                 }
-                l *= gain * makeup
-                r *= gain * makeup
-                let mix = Float(fx[5])
-                if mix > 0.001 {
-                    let drive = max(1, Float(fx[3]))
-                    let tone = 0.10 + 0.88 * Float(fx[4])   // color = brightness
-                    satLPl += (tanh(l * drive) - satLPl) * tone
-                    satLPr += (tanh(r * drive) - satLPr) * tone
-                    l = l * (1 - mix) + satLPl * mix * 0.9
-                    r = r * (1 - mix) + satLPr * mix * 0.9
+                l *= gain * fxMakeup
+                r *= gain * fxMakeup
+                if fxMix > 0.001 {
+                    satLPl += (tanh(l * fxDrive) - satLPl) * fxTone
+                    satLPr += (tanh(r * fxDrive) - satLPr) * fxTone
+                    l = l * (1 - fxMix) + satLPl * fxMix * 0.9
+                    r = r * (1 - fxMix) + satLPr * fxMix * 0.9
                 }
             }
 

@@ -133,7 +133,13 @@ final class LaunchkeyDriver {
                     let v = Int(value)
                     if let last = lastPot[i] {
                         let ticks = (v - last) / 2
-                        if ticks != 0 { brain.encoder(i, delta: ticks); lastPot[i] = last + ticks * 2 }
+                        if ticks != 0 {
+                            // Far-right knob = the app's big wheel (browse/set);
+                            // knobs 1-7 = encoders 1-7.
+                            if i == 7 { brain.wheel(delta: ticks) }
+                            else { brain.encoder(i, delta: ticks) }
+                            lastPot[i] = last + ticks * 2
+                        }
                     } else {
                         lastPot[i] = v
                     }
@@ -141,11 +147,14 @@ final class LaunchkeyDriver {
                 }
                 if (0x55...0x5C).contains(cc) {          // relative (full-size MK4)
                     let delta = Int(value) - 64
-                    if delta != 0 { brain.encoder(Int(cc - 0x55), delta: delta) }
+                    if delta != 0 {
+                        if cc == 0x5C { brain.wheel(delta: delta) }
+                        else { brain.encoder(Int(cc - 0x55), delta: delta) }
+                    }
                     return
                 }
             }
-            if ch == 14, (0x55...0x5C).contains(cc) {    // encoder touch (full-size)
+            if ch == 14, (0x55...0x5B).contains(cc) {    // encoder touch (full-size)
                 brain.encoderTouch(Int(cc - 0x55), down: value > 0)
                 return
             }
@@ -158,6 +167,12 @@ final class LaunchkeyDriver {
             }
         case let .noteOn(note, velocity, ch):
             if ch == 9 {                                  // drum takeover pads
+                if layer == .drum, brain.menuOpen, note == drumBase + 11 {
+                    // Bottom-right drum pad doubles as Enter while a menu is up.
+                    brain.button("wheelPress", down: true)
+                    brain.button("wheelPress", down: false)
+                    return
+                }
                 if layer == .drum, note >= drumBase, note < drumBase + 16 {
                     brain.externalDrumCell(Int(note - drumBase), velocity: Int(velocity), on: true)
                 }
@@ -225,6 +240,15 @@ final class LaunchkeyDriver {
 
     private func padPressed(_ idx: Int, velocity: Int, down: Bool) {
         guard let brain else { return }
+        // Bottom-right pad = Enter (the wheel click). Always in SESSION and
+        // STEP; in DRUM the pads stay drums unless a menu is open.
+        if idx == 15, layer != .drum || brain.menuOpen {
+            if down {
+                brain.button("wheelPress", down: true)
+                brain.button("wheelPress", down: false)
+            }
+            return
+        }
         switch layer {
         case .session:
             guard down else { return }
@@ -333,10 +357,14 @@ final class LaunchkeyDriver {
                 setPad(drumBase + UInt8(cell), rgb: rgb, pulse: false, drumChannel: true)
             }
         case .step:
-            for i in 0..<16 {
+            for i in 0..<15 {
                 let rgb = brain.noteColors[Brain.stepNote(i)] ?? .zero
                 setPad(i < 8 ? topRow[i] : bottomRow[i - 8], rgb: rgb, pulse: false)
             }
+        }
+        // Enter pad reads green in the layers where it's live.
+        if layer != .drum {
+            setPad(bottomRow[7], rgb: SIMD3(0.15, 0.80, 0.30), pulse: false)
         }
     }
 

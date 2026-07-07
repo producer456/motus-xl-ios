@@ -416,17 +416,16 @@ final class LaunchkeyDriver {
             ctx.interpolationQuality = .medium
             ctx.draw(image, in: CGRect(x: 0, y: 0, width: 128, height: 64))
             let px = raw.bindMemory(to: UInt8.self)
-            // Panel scan direction is set live from Setup (LK SCREEN row):
-            // bit0 = vertical flip, bit1 = horizontal flip.
+            // NoteLab-proven packing (device-verified): buffer row 0 = OLED
+            // top, leftmost pixel = bit 6 (MSB-left within each 7-px byte).
+            // Setup's LK SCREEN row still offers flips for odd firmwares.
             let flipV = bitmapOrient & 1 != 0
             let flipH = bitmapOrient & 2 != 0
             for row in 0..<64 {
-                let src = (flipV ? row : 63 - row) * 128   // CG is bottom-up
+                let src = (flipV ? 63 - row : row) * 128
                 for col in 0..<128 where px[src + col] > 90 {
                     let dcol = flipH ? 127 - col : col
-                    // LSB = LEFTMOST pixel of each 7-px group (hardware-
-                    // verified: MSB-first mirrored every glyph individually).
-                    packed[row * 19 + dcol / 7] |= UInt8(1) << UInt8(dcol % 7)
+                    packed[row * 19 + dcol / 7] |= UInt8(1) << UInt8(6 - dcol % 7)
                 }
             }
         }

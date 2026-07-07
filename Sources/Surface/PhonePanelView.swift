@@ -18,6 +18,16 @@ struct PhonePanelView: View {
     static let designSize = CGSize(width: 932, height: 430)
 
     var body: some View {
+        // Full rig docked (Launchpad grid + Launchkey keys): the panel replica
+        // retires and the color command deck takes over.
+        if client.launchpadOn && client.launchkeyOn {
+            DockView()
+        } else {
+            panelBody
+        }
+    }
+
+    private var panelBody: some View {
         GeometryReader { geo in
             let scale = min(geo.size.width / Self.designSize.width,
                             geo.size.height / Self.designSize.height)

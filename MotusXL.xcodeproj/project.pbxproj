@@ -26,6 +26,7 @@
 		D0F16BEEE5B0DFFD3E70B9E5 /* DrumKits.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EA8CAAF184C75AD3E2BA02B /* DrumKits.swift */; };
 		E690DD9777E6BEBDFCBA2F91 /* DisplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E42468DD500B4B3D99B9C22 /* DisplayView.swift */; };
 		ED34BBB9D85098C4D214B351 /* SynthVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA53FFFA1A22CD2E8E1F7D59 /* SynthVoice.swift */; };
+		F25BC23AE4C38A0AAEFCC89E /* DockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71C009E76EE57DB4AF91B0CC /* DockView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -38,6 +39,7 @@
 		3E42468DD500B4B3D99B9C22 /* DisplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayView.swift; sourceTree = "<group>"; };
 		4AEDAF1330A0357E561A2333 /* AudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEngine.swift; sourceTree = "<group>"; };
 		688AF6DA3BC7FB8A60FFBA87 /* PanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelView.swift; sourceTree = "<group>"; };
+		71C009E76EE57DB4AF91B0CC /* DockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockView.swift; sourceTree = "<group>"; };
 		74727B3C220C014CDE53DC95 /* Motion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Motion.swift; sourceTree = "<group>"; };
 		80E01276A221700CB413E8D4 /* Brain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Brain.swift; sourceTree = "<group>"; };
 		863534603281FD45A5E69628 /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
@@ -132,6 +134,7 @@
 				0562D0C6403F664DC328F0F8 /* Chrome.swift */,
 				A6184528C9A23E194877EED2 /* Controls.swift */,
 				3E42468DD500B4B3D99B9C22 /* DisplayView.swift */,
+				71C009E76EE57DB4AF91B0CC /* DockView.swift */,
 				74727B3C220C014CDE53DC95 /* Motion.swift */,
 				EB7E928B2A932BF3F22D1A6D /* PadGridView.swift */,
 				688AF6DA3BC7FB8A60FFBA87 /* PanelView.swift */,
@@ -227,6 +230,7 @@
 				03C60D8CBDFCD5E10F1A7225 /* Chrome.swift in Sources */,
 				8C981161AF44A72E44548E85 /* Controls.swift in Sources */,
 				E690DD9777E6BEBDFCBA2F91 /* DisplayView.swift in Sources */,
+				F25BC23AE4C38A0AAEFCC89E /* DockView.swift in Sources */,
 				D0F16BEEE5B0DFFD3E70B9E5 /* DrumKits.swift in Sources */,
 				19E126C29E9BBC52703E5B4E /* LaunchkeyDriver.swift in Sources */,
 				36115089F5D9822AA61B48A7 /* LaunchpadDriver.swift in Sources */,

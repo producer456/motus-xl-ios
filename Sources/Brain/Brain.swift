@@ -52,6 +52,12 @@ final class Brain: ObservableObject {
     /// layout when the grid/keys are covered by hardware.
     @Published var launchpadOn = false
     @Published var launchkeyOn = false
+    /// Dock view (phone + full hardware rig) reads these to decide whether
+    /// the big dot-matrix screen or the color dashboard is showing.
+    var menuOpen: Bool { menu != .none }
+    var overlayActive: Bool { overlay != nil }
+    var songInfo: Song { song }
+    var playingNow: Bool { engine.isPlaying }
 
     // ---- Song / state ----
     private(set) var song = Song()
@@ -2332,6 +2338,18 @@ final class Brain: ObservableObject {
             }
         }
         refreshLeds()
+    }
+
+    /// Dock view touch targets: open a Shift-step menu directly.
+    func openShiftMenu(_ index: Int) {
+        guard poweredOn else { return }
+        shiftStep(index)
+    }
+
+    /// Dock view: tap the selected track's card again -> browser/presets.
+    func openBrowserForSelected() {
+        guard poweredOn else { return }
+        wheelPress()
     }
 
     /// Right-column scene button: select + launch that scene (17.1).

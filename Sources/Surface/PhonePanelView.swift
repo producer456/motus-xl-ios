@@ -254,21 +254,40 @@ struct PhonePanelView: View {
             FunctionButton(id: "auview", systemImage: "macwindow", diameter: 24 * s)
                 .position(x: 92 * s, y: 258 * s)
 
-            FunctionButton(id: "play", systemImage: "play.fill", diameter: 38 * s, litColor: .green)
-                .position(x: 68 * s, y: 384 * s)
-            FunctionButton(id: "record", systemImage: "circle.fill", diameter: 38 * s, litColor: .red)
-                .position(x: 110 * s, y: 384 * s)
-
-            // ---- Track buttons, one per pad row ----
-            ForEach(0..<8, id: \.self) { index in
-                TrackButton(index: index, size: CGSize(width: 14 * s, height: 40 * s))
-                    .position(x: 140 * s, y: padRowY(index) * s)
+            // Transport hides when the Launchkey's Play/Rec cover it.
+            if !client.launchkeyOn {
+                FunctionButton(id: "play", systemImage: "play.fill", diameter: 38 * s, litColor: .green)
+                    .position(x: 68 * s, y: 384 * s)
+                FunctionButton(id: "record", systemImage: "circle.fill", diameter: 38 * s, litColor: .red)
+                    .position(x: 110 * s, y: 384 * s)
             }
 
-            // ---- 8x8 pad grid, full height ----
-            PadGridView(colors: client.noteColors, channels: client.noteChannels, tilt: motion.tilt)
-                .frame(width: 500 * s, height: 396 * s)
-                .position(x: 406 * s, y: 215 * s)
+            // ---- Track bars + grid — hidden when a Launchpad covers them:
+            // the phone docks into "just a screen" (manual-style big OLED).
+            if client.launchpadOn {
+                RoundedRectangle(cornerRadius: 10 * s)
+                    .fill(Color(white: 0.045))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10 * s)
+                            .strokeBorder(
+                                LinearGradient(colors: [Color.black, Color(white: 0.24)],
+                                               startPoint: .top, endPoint: .bottom),
+                                lineWidth: 1.4 * s)
+                    )
+                    .frame(width: 516 * s, height: 276 * s)
+                    .position(x: 406 * s, y: 215 * s)
+                DisplayView(image: client.displayImage, tilt: motion.tilt)
+                    .frame(width: 492 * s, height: 246 * s)
+                    .position(x: 406 * s, y: 215 * s)
+            } else {
+                ForEach(0..<8, id: \.self) { index in
+                    TrackButton(index: index, size: CGSize(width: 14 * s, height: 40 * s))
+                        .position(x: 140 * s, y: padRowY(index) * s)
+                }
+                PadGridView(colors: client.noteColors, channels: client.noteChannels, tilt: motion.tilt)
+                    .frame(width: 500 * s, height: 396 * s)
+                    .position(x: 406 * s, y: 215 * s)
+            }
 
             // ---- Right bay: OLED + volume ----
             DisplayView(image: client.displayImage, tilt: motion.tilt)
@@ -278,12 +297,14 @@ struct PhonePanelView: View {
                         deepShadow: client.themeStyle == 2) // volume
                 .position(x: 894 * s, y: 36 * s)
 
-            // ---- Encoders, 2 rows of 4 (1-4 top, 5-8 bottom) ----
-            ForEach(0..<8, id: \.self) { index in
-                EncoderView(index: index, diameter: 34 * s, tilt: motion.tilt,
-                            deepShadow: client.themeStyle == 2)
-                    .position(x: (706 + CGFloat(index % 4) * 44) * s,
-                              y: (132 + CGFloat(index / 4) * 46) * s)
+            // ---- Encoders, 2 rows of 4 — the Launchkey's knobs cover these ----
+            if !client.launchkeyOn {
+                ForEach(0..<8, id: \.self) { index in
+                    EncoderView(index: index, diameter: 34 * s, tilt: motion.tilt,
+                                deepShadow: client.themeStyle == 2)
+                        .position(x: (706 + CGFloat(index % 4) * 44) * s,
+                                  y: (132 + CGFloat(index / 4) * 46) * s)
+                }
             }
 
             // ---- Function cluster, 2 rows of 4 ----

@@ -48,6 +48,10 @@ final class Brain: ObservableObject {
     private(set) var launchpad: LaunchpadDriver?
     var isRecording: Bool { recording }
     var isSessionMode: Bool { mode == .session }
+    /// Published hardware-surface state: the phone UI docks into a big-screen
+    /// layout when the grid/keys are covered by hardware.
+    @Published var launchpadOn = false
+    @Published var launchkeyOn = false
 
     // ---- Song / state ----
     private(set) var song = Song()
@@ -246,6 +250,10 @@ final class Brain: ObservableObject {
             }
         }
         midi.start()
+        if ProcessInfo.processInfo.arguments.contains("-hwsim") {
+            launchpadOn = true   // visual test of the docked phone layout
+            launchkeyOn = true
+        }
         refresh()
     }
 
@@ -2306,6 +2314,8 @@ final class Brain: ObservableObject {
     /// Driver hot-plug feedback — vital on the phone, where a connected
     /// surface takes over most of the playing.
     func surfaceChanged(_ name: String, connected: Bool) {
+        if name.hasPrefix("LAUNCHPAD") { launchpadOn = connected }
+        if name.hasPrefix("LAUNCHKEY") { launchkeyOn = connected }
         guard poweredOn else { return }
         showOverlay(name, connected ? 1 : 0, connected ? "CONNECTED" : "DISCONNECTED")
     }

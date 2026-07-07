@@ -270,8 +270,9 @@ struct EncoderView: View {
                             accumulated = 0
                             client.encoderTouch(index, down: true)
                         }
-                        // Vertical drag; ~7 pt per detent.
-                        let delta = -value.translation.height - accumulated
+                        // Horizontal drag: right = increase, left = decrease
+                        // (~7 pt per detent).
+                        let delta = value.translation.width - accumulated
                         let ticks = Int(delta / 7)
                         if ticks != 0 {
                             accumulated += CGFloat(ticks) * 7

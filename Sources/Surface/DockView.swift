@@ -132,7 +132,7 @@ struct DockView: View {
                 FunctionButton(id: "quantize", systemImage: "arrow.right.to.line", diameter: 34 * s)
                 FunctionButton(id: "auview", systemImage: "macwindow", diameter: 34 * s)
                 Spacer()
-                Text("MOVE XL DOCK")
+                Text("MOTUS XL DOCK")
                     .font(.system(size: 9 * s, weight: .bold, design: .rounded))
                     .kerning(2 * s)
                     .foregroundStyle(Color(white: 0.30))

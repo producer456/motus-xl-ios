@@ -1719,7 +1719,7 @@ final class Brain: ObservableObject {
             engine.start()
             // Brief boot wordmark, then the main screen.
             var boot = Screen()
-            boot.textCentered("MOVE XL", y: 52, size: 3)
+            boot.textCentered("MOTUS XL", y: 52, size: 3)
             displayImage = boot.render()
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 700_000_000)

@@ -135,7 +135,7 @@ struct PhonePanelView: View {
                 .frame(width: 7 * s, height: 7 * s)
                 .position(x: 894 * s, y: 80 * s)
 
-            Text("MOVE XL")
+            Text("MOTUS XL")
                 .font(.system(size: 9 * s, weight: .bold, design: .rounded))
                 .kerning(1.6 * s)
                 .foregroundStyle(Color(white: 0.30))
@@ -203,7 +203,7 @@ struct PhonePanelView: View {
             Screw(diameter: 7 * s, angle: 61).position(x: 30 * s, y: 412 * s)
             Screw(diameter: 7 * s, angle: 158).position(x: 902 * s, y: 412 * s)
 
-            Text("MOVE XL")
+            Text("MOTUS XL")
                 .font(.system(size: 9 * s, weight: .bold, design: .rounded))
                 .kerning(1.6 * s)
                 .foregroundStyle(Color(red: 0.85, green: 0.80, blue: 0.68).opacity(0.65))

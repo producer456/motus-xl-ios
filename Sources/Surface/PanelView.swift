@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// "Move XL" — the imagined big sibling of the Move, at the 11" iPad Pro's
-/// footprint: 8 tracks with an 8x8 grid (full session parity: rows = tracks,
-/// columns = scenes), a 256x128 OLED showing all tracks at once, and the
-/// original Move's wide pad shape. Laid out in a 1000x699 design space.
+/// Motus XL — an original larger-format grid controller for the 11" iPad Pro:
+/// 8 tracks with an 8x8 grid (rows = tracks, columns = scenes), a 256x128 OLED
+/// showing all tracks at once, and a wide pad shape. Designed for use alongside
+/// Ableton Move hardware. Laid out in a 1000x699 design space.
 struct PanelView: View {
     @EnvironmentObject var client: Brain
     @StateObject private var motion = MotionSource()
@@ -133,7 +133,7 @@ struct PanelView: View {
 
 
             // XL wordmark on the deck.
-            Text("MOVE XL")
+            Text("MOTUS XL")
                 .font(.system(size: 11 * s, weight: .bold, design: .rounded))
                 .kerning(2 * s)
                 .foregroundStyle(Color(white: 0.30))
@@ -210,7 +210,7 @@ struct PanelView: View {
             Screw(diameter: 9 * s, angle: 158).position(x: 974 * s, y: 676 * s)
 
             // Cream wordmark, badge style.
-            Text("MOVE XL")
+            Text("MOTUS XL")
                 .font(.system(size: 11 * s, weight: .bold, design: .rounded))
                 .kerning(2 * s)
                 .foregroundStyle(Color(red: 0.85, green: 0.80, blue: 0.68).opacity(0.65))

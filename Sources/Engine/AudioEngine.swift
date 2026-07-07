@@ -33,6 +33,14 @@ final class AudioEngine {
     /// Lanes with a finger on the encoder: automation is overridden while
     /// touched (manual 14.2). Written under lock from the main thread.
     private var autoSuspend = [Set<String>](repeating: [], count: AudioEngine.maxTracks)
+    // Sidechain duck state: env 1 at a source hit, exponential release;
+    // gain smoothed per frame (~3ms) so ducking never clicks. AU tracks are
+    // ducked at control rate from the main thread via duckShared.
+    private var duckEnv = [Float](repeating: 0, count: AudioEngine.maxTracks)
+    private var duckSm = [Float](repeating: 1, count: AudioEngine.maxTracks)
+    private var duckShared = [Float](repeating: 1, count: AudioEngine.maxTracks)
+    private var auBaseVol = [Float](repeating: 0.8, count: AudioEngine.maxTracks)
+    private var duckTimer: DispatchSourceTimer?
     // Master set-effects state (Dynamics -> Saturator, manual 17.2).
     private var compEnv: Float = 0
     private var satLPl: Float = 0
@@ -115,6 +123,14 @@ final class AudioEngine {
         }
         engine.prepare()
         try? engine.start()
+        if duckTimer == nil {
+            // Control-rate ducking for AU mixers (they live outside render).
+            let timer = DispatchSource.makeTimerSource(queue: .main)
+            timer.schedule(deadline: .now(), repeating: 1.0 / 60)
+            timer.setEventHandler { [weak self] in self?.applyAUDuck() }
+            timer.resume()
+            duckTimer = timer
+        }
         observeInterruptions()
     }
 
@@ -330,7 +346,22 @@ final class AudioEngine {
 
     @MainActor
     func setAUVolume(track: Int, volume: Float) {
+        let t = max(0, min(Self.maxTracks - 1, track))
+        auBaseVol[t] = volume
         auMixers[track]?.outputVolume = volume
+    }
+
+    /// 60 Hz: duck AU mixer volumes from the render thread's envelopes.
+    private func applyAUDuck() {
+        lock.lock()
+        let duck = duckShared
+        let tracks = song.tracks
+        lock.unlock()
+        for (t, mixer) in auMixers {
+            guard t < Self.maxTracks, tracks.indices.contains(t),
+                  tracks[t].duckSource != nil else { continue }
+            mixer.outputVolume = auBaseVol[t] * duck[t]
+        }
     }
 
     /// The AU's own view controller (its native plugin UI), if it offers one.
@@ -529,6 +560,19 @@ final class AudioEngine {
             trackGain[i] = i < song.tracks.count ? Float(song.tracks[i].volume) : 1
         }
 
+        // Sidechain per-block: release coefficient per target track.
+        var duckAmt = [Float](repeating: 0, count: Self.maxTracks)
+        var duckRel = [Float](repeating: 1, count: Self.maxTracks)
+        for (t, tr) in song.tracks.enumerated() where t < Self.maxTracks {
+            if tr.duckSource != nil {
+                duckAmt[t] = Float(min(1, max(0, tr.duckAmount ?? 0.6)))
+                let rel = max(0.05, tr.duckRelease ?? 0.25)
+                duckRel[t] = exp(-1.0 / (Float(rel) * Float(Self.sampleRate)))
+            } else {
+                duckEnv[t] = 0
+            }
+        }
+
         for frame in 0..<frameCount {
             if playing, countInStepsLeft > 0 {
                 // Count-in bar: metronome clicks only — the sequencer holds
@@ -577,11 +621,18 @@ final class AudioEngine {
                 stepPos += stepInc
             }
 
+            // Sidechain envelopes: decay + smooth toward the duck gain.
+            for t in 0..<Self.maxTracks where duckAmt[t] > 0 || duckSm[t] < 0.999 {
+                duckEnv[t] *= duckRel[t]
+                let target = 1 - duckAmt[t] * duckEnv[t]
+                duckSm[t] += (target - duckSm[t]) * 0.008
+            }
+
             var l: Float = 0, r: Float = 0
             for voice in drumVoices where voice.active {
                 let (vl, vr) = voice.render()
                 let t = max(0, min(Self.maxTracks - 1, voice.track))
-                let gain = trackGain[t]
+                let gain = trackGain[t] * duckSm[t]
                 l += vl * gain; r += vr * gain
                 wetL += vl * gain * delaySendAmt[t]
                 wetR += vr * gain * delaySendAmt[t]
@@ -589,7 +640,7 @@ final class AudioEngine {
             for voice in synthVoices where voice.active {
                 let v = voice.render()
                 let t = max(0, min(Self.maxTracks - 1, voice.track))
-                let gain = trackGain[t]
+                let gain = trackGain[t] * duckSm[t]
                 l += v * gain; r += v * gain
                 wetL += v * gain * delaySendAmt[t]
                 wetR += v * gain * delaySendAmt[t]
@@ -637,10 +688,11 @@ final class AudioEngine {
             outR[frame] = tanh(r * volume * 1.2)
         }
 
-        // Publish playhead for the UI.
+        // Publish playhead + duck gains for the UI/AU-duck timer.
         lock.lock()
         playheadStep = stepPos
         inCountInShared = countInStepsLeft > 0
+        duckShared = duckSm
         lock.unlock()
     }
 
@@ -677,6 +729,13 @@ final class AudioEngine {
                          auBlocks: [AUScheduleMIDIEventBlock?]? = nil,
                          frameOffset: Int = 0, offAfterFrames: Int = 0) -> SynthVoice? {
         let t = max(0, min(Self.maxTracks - 1, event.track))
+        if event.on {
+            // Sidechain: a hit on a source track slams its targets' envelopes.
+            for (target, tr) in song.tracks.enumerated() where tr.duckSource == t {
+                if let cell = tr.duckCell, event.kind == .drum, cell != event.key { continue }
+                duckEnv[target] = 1
+            }
+        }
         // AU-hosted track: translate to MIDI, schedule sample-accurately.
         if event.kind == .synth, let blocks = auBlocks, let block = blocks[t] {
             let key = UInt8(max(0, min(127, event.key)))

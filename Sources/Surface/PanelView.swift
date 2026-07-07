@@ -345,6 +345,7 @@ struct PanelView: View {
         8:  ("music.note", nil),             // Scale
         9:  ("bolt.fill", nil),              // Full Velocity
         10: ("repeat.1", nil),               // Repeat / Arp
+        11: ("arrow.down.forward.circle", nil), // Sidechain duck
         13: ("plus.square", nil),            // Prepare next clip slot
         14: (nil, "\u{00D7}2"),              // Double Loop  (×2)
         15: ("arrow.right.to.line", nil),    // Quantize

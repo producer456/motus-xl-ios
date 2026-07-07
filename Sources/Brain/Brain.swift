@@ -70,7 +70,7 @@ final class Brain: ObservableObject {
 
     enum Menu: Equatable {
         case none, tempo, groove, metronome, scale, browser, setup, loopLength, workflow
-        case auPresets, powerConfirm, repeatMenu
+        case auPresets, powerConfirm, repeatMenu, sidechain
         case setColor(Int)   // Shift+pad in Set Overview
         case message(String)
     }
@@ -163,6 +163,7 @@ final class Brain: ObservableObject {
     private var repeatRateIdx = 3
     private var repeatStyle = 0        // 0 repeat, 1 up, 2 down, 3 random
     private var repeatRow = 0          // menu row: 0 style, 1 rate
+    private var duckRow = 0            // sidechain menu row
     private var repeatArpPos = 0
     private var repeatChainArmed = false
     private var repeatVelocity = 100   // velocity of the initiating pad hit
@@ -208,7 +209,7 @@ final class Brain: ObservableObject {
 
     /// Step indices that have a Shift function (see shiftStep) — these get an
     /// illuminated legend under the step button on the panel.
-    static let legendSteps = [0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15]
+    static let legendSteps = [0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15]
 
     // MARK: - Lifecycle
 
@@ -1159,6 +1160,10 @@ final class Brain: ObservableObject {
             menu = repeatActive ? .repeatMenu : .none
             if !repeatActive { showOverlay("REPEAT", 0, "OFF") }
             refresh()
+        case 11: // Sidechain (XL exclusive: duck this track from a source)
+            duckRow = 0
+            menu = .sidechain
+            refresh()
         case 14: // double loop (pre-check so a no-op doesn't pollute undo)
             guard track.clips[song.selectedScene].bars * 2 <= 16 else { break }
             edit { song in
@@ -1823,6 +1828,9 @@ final class Brain: ObservableObject {
             scaleRow = (scaleRow + 1) % 3
         case .repeatMenu:
             if track.kind != .drum { repeatRow = (repeatRow + 1) % 2 }
+        case .sidechain:
+            let srcIsDrum = track.duckSource.map { song.tracks.indices.contains($0) && song.tracks[$0].kind == .drum } ?? false
+            repeat { duckRow = (duckRow + 1) % 4 } while duckRow == 1 && !srcIsDrum
         case .metronome:
             metronomeOn.toggle()
             engine.setMetronome(metronomeOn)
@@ -2038,6 +2046,33 @@ final class Brain: ObservableObject {
             refresh()
         case .metronome, .message:
             break
+        case .sidechain:
+            adjust { song in
+                var tr = song.tracks[song.selectedTrack]
+                switch duckRow {
+                case 0:
+                    // OFF, then every other track as the source.
+                    var options: [Int?] = [nil]
+                    options += (0..<song.tracks.count).filter { $0 != song.selectedTrack }.map { $0 }
+                    let current = options.firstIndex(where: { $0 == tr.duckSource }) ?? 0
+                    let next = ((current + delta) % options.count + options.count) % options.count
+                    tr.duckSource = options[next]
+                    if tr.duckSource == nil { tr.duckCell = nil }
+                case 1:
+                    // ANY, then cells 1-16 (drum sources only).
+                    let current = tr.duckCell.map { $0 + 1 } ?? 0
+                    let next = ((current + delta) % 17 + 17) % 17
+                    tr.duckCell = next == 0 ? nil : next - 1
+                case 2:
+                    let amt = min(1, max(0, (tr.duckAmount ?? 0.6) + Double(delta) * 0.05))
+                    tr.duckAmount = amt
+                default:
+                    let rel = min(1.5, max(0.05, (tr.duckRelease ?? 0.25) + Double(delta) * 0.05))
+                    tr.duckRelease = rel
+                }
+                song.tracks[song.selectedTrack] = tr
+            }
+            refresh()
         case .setColor(let slot):
             let count = Self.trackColors.count
             let current = UserDefaults.standard.object(forKey: "setColor.\(slot)") as? Int ?? slot % 8
@@ -2775,6 +2810,21 @@ final class Brain: ObservableObject {
             s.textCentered("POWER OFF?", y: 30, size: 2)
             s.textCentered("PRESS WHEEL TO CONFIRM", y: 66)
             s.textCentered("BACK TO CANCEL", y: 82)
+        case .sidechain:
+            s.text("SIDECHAIN - T\(song.selectedTrack + 1)", x: 8, y: 8)
+            let srcName = track.duckSource.map { "TRACK \($0 + 1)" } ?? "OFF"
+            let srcIsDrum = track.duckSource.map { song.tracks.indices.contains($0) && song.tracks[$0].kind == .drum } ?? false
+            let cellName = srcIsDrum ? (track.duckCell.map { "PAD \($0 + 1)" } ?? "ANY HIT") : "-"
+            let rows = ["SOURCE  \(srcName)",
+                        "TRIGGER  \(cellName)",
+                        String(format: "AMOUNT  %.0f%%", (track.duckAmount ?? 0.6) * 100),
+                        String(format: "RELEASE  %.2fS", track.duckRelease ?? 0.25)]
+            for (i, row) in rows.enumerated() {
+                let y = 26 + i * 19
+                if duckRow == i { s.fillRect(4, y - 5, 248, 17) }
+                s.text(row, x: 12, y: y, size: 2, invert: duckRow == i)
+            }
+            s.textCentered("SOURCE HITS DUCK THIS TRACK", y: 108)
         case .setColor(let slot):
             s.text("SET \(slot + 1) COLOR", x: 8, y: 8)
             let idx = UserDefaults.standard.object(forKey: "setColor.\(slot)") as? Int ?? slot % 8
@@ -3172,6 +3222,7 @@ final class Brain: ObservableObject {
             if step == 7, sixteenPitches { level = max(level, 48) }
             if step == 9, fullVelocity { level = max(level, 48) }
             if step == 10, repeatActive { level = max(level, 48) }
+            if step == 11, track.duckSource != nil { level = max(level, 48) }
             ccs[200 + step] = level
         }
 

@@ -74,6 +74,14 @@ struct Track: Codable, Equatable {
     var mutedCells: Set<Int> = []       // drum cell mutes
     /// Per-drum-cell sample gain (pad-hold + Volume, manual 16.5). nil = 1.0.
     var cellGains: [Int: Double]?
+    /// Sidechain (XL exclusive): this track ducks when `duckSource` fires.
+    /// duckCell scopes drum sources to one cell (nil = any note);
+    /// duckAmount = depth 0-1; duckRelease = seconds. All optional so old
+    /// sets decode.
+    var duckSource: Int?
+    var duckCell: Int?
+    var duckAmount: Double?
+    var duckRelease: Double?
 }
 
 struct Song: Codable, Equatable {

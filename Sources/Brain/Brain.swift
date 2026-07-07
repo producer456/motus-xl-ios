@@ -261,10 +261,22 @@ final class Brain: ObservableObject {
                 }
             }
         }
+        var lastSources: [String] = []
         midi.onSetupChanged = { [weak self] in
             MainActor.assumeIsolated {
-                self?.launchkey?.connectIfPresent()
-                self?.launchpad?.connectIfPresent()
+                guard let self else { return }
+                self.launchkey?.connectIfPresent()
+                self.launchpad?.connectIfPresent()
+                // Plug-in feedback without menu digging: flash the port list
+                // whenever it changes (key for on-device MIDI debugging).
+                let names = self.midi.sourceNames.filter { !$0.localizedCaseInsensitiveContains("network") }
+                if names != lastSources {
+                    lastSources = names
+                    self.showOverlay("MIDI PORTS", names.isEmpty ? 0 : 1,
+                                     names.isEmpty ? "NONE"
+                                     : String(names.map { String($0.prefix(14)) }
+                                         .joined(separator: " / ").prefix(38)))
+                }
             }
         }
         midi.start()
@@ -2663,7 +2675,8 @@ final class Brain: ObservableObject {
             }
             s.textCentered("TURN=SET PRESS=SWAP", y: 106)
         case .setup:
-            s.text("SETUP - MOTUS XL", x: 8, y: 8)
+            let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+            s.text("SETUP - MOTUS XL  B\(build.suffix(5))", x: 8, y: 8)
             s.text("\(DrumKits.names.count) KITS - 8 TRACKS", x: 8, y: 24)
             let colorName = Self.chassisColors[((chassisColorIndex % Self.chassisColors.count)
                 + Self.chassisColors.count) % Self.chassisColors.count].name

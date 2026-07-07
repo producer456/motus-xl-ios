@@ -380,10 +380,13 @@ final class LaunchkeyDriver {
             ctx.interpolationQuality = .medium
             ctx.draw(image, in: CGRect(x: 0, y: 0, width: 128, height: 64))
             let px = raw.bindMemory(to: UInt8.self)
+            // Hardware-verified orientation: the panel scans opposite to the
+            // CG buffer on BOTH axes (first attempt came out rotated 180).
             for row in 0..<64 {
-                let src = (63 - row) * 128   // CG bitmaps are bottom-up
+                let src = row * 128
                 for col in 0..<128 where px[src + col] > 90 {
-                    packed[row * 19 + col / 7] |= UInt8(0x40) >> UInt8(col % 7)
+                    let dcol = 127 - col
+                    packed[row * 19 + dcol / 7] |= UInt8(0x40) >> UInt8(dcol % 7)
                 }
             }
         }

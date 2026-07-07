@@ -22,6 +22,9 @@ final class MIDIManager {
     private var outputPort = MIDIPortRef()
     private var nameByToken: [Int: String] = [:]
     private var connectedSources: [MIDIEndpointRef] = []
+    /// Destination cache — MIDI clock sends 48x/sec; re-enumerating every
+    /// destination per tick is waste. Invalidated on setup change.
+    private var destCache: [String: MIDIEndpointRef] = [:]
 
     func start() {
         if client == 0 {
@@ -47,14 +50,22 @@ final class MIDIManager {
     @discardableResult
     func send(_ bytes: [UInt8], toPortMatchingAll needles: [String]) -> Bool {
         guard outputPort != 0, !bytes.isEmpty else { return false }
+        let cacheKey = needles.joined(separator: "|")
+        if let cached = destCache[cacheKey] { return rawSend(bytes, to: cached) }
         var fallback: MIDIEndpointRef?
         for i in 0..<MIDIGetNumberOfDestinations() {
             let dst = MIDIGetDestination(i)
             let nm = displayName(of: dst).lowercased()
-            if needles.allSatisfy({ nm.contains($0.lowercased()) }) { return rawSend(bytes, to: dst) }
+            if needles.allSatisfy({ nm.contains($0.lowercased()) }) {
+                destCache[cacheKey] = dst
+                return rawSend(bytes, to: dst)
+            }
             if let first = needles.first, nm.contains(first.lowercased()), fallback == nil { fallback = dst }
         }
-        if let fallback { return rawSend(bytes, to: fallback) }
+        if let fallback {
+            destCache[cacheKey] = fallback
+            return rawSend(bytes, to: fallback)
+        }
         return false
     }
 
@@ -75,6 +86,7 @@ final class MIDIManager {
         connectedSources.removeAll()
         var names: [String] = []
         nameByToken.removeAll()
+        destCache.removeAll()
         for i in 0..<MIDIGetNumberOfSources() {
             let src = MIDIGetSource(i)
             guard src != 0 else { continue }

@@ -114,6 +114,7 @@ final class Brain: ObservableObject {
 
     // Manual 9.5 sequencing state: pad-then-step / step-then-pad note entry.
     private var heldPads: [Int: Int] = [:]     // melodic pad index -> MIDI note
+    private var heldExternalKeys: [Int: Int] = [:]  // keybed note -> origin track
     private var heldDrumCells: Set<Int> = []    // drum cells under fingers
     private var heldTracks: Set<Int> = []       // track buttons held (vol gesture)
     private var muteDownAt: Date?
@@ -222,7 +223,8 @@ final class Brain: ObservableObject {
         launchkey = driver
         midi.onMessage = { [weak self] message, source in
             guard source.localizedCaseInsensitiveContains("launchkey") else { return }
-            MainActor.assumeIsolated { self?.launchkey?.handle(message) }
+            let isDAW = source.localizedCaseInsensitiveContains("daw")
+            MainActor.assumeIsolated { self?.launchkey?.handle(message, isDAWPort: isDAW) }
         }
         midi.onSetupChanged = { [weak self] in
             MainActor.assumeIsolated { self?.launchkey?.connectIfPresent() }
@@ -1006,6 +1008,10 @@ final class Brain: ObservableObject {
             captureNoteOff(key: key)
         }
         heldPads.removeAll()
+        for (note, origin) in heldExternalKeys {
+            engine.liveNote(track: origin, kind: .synth, key: note, velocity: 0, on: false)
+        }
+        heldExternalKeys.removeAll()
         heldDrumCells.removeAll()
         heldSteps.removeAll()
         stepEntryUsed.removeAll()
@@ -1275,6 +1281,7 @@ final class Brain: ObservableObject {
             edit { $0.tracks[index].muted.toggle() }
         } else {
             if menu == .browser { cancelBrowserPreview(); menu = .none } // stale list would commit a random sound
+            if menu == .auPresets { cancelAUPresetPreview(); menu = .none }
             clearEntryState()
             if recording, index != song.selectedTrack {
                 // Manual: switching tracks ends the recording pass.
@@ -1636,6 +1643,7 @@ final class Brain: ObservableObject {
         overlay = nil
         pendingNav = nil
         poweredOn = false
+        launchkey?.powerDark()
         displayImage = nil          // OLED dark
         noteColors = [:]            // every LED off
         noteChannels = [:]
@@ -2147,11 +2155,17 @@ final class Brain: ObservableObject {
             return
         }
         if !on {
-            engine.liveNote(track: song.selectedTrack, kind: .synth, key: note, velocity: 0, on: false)
-            captureNoteOff(key: note)
-            recordRelease(key: note)
+            // Release against the track the note STARTED on, or it sustains
+            // forever after a track switch mid-hold.
+            let origin = heldExternalKeys.removeValue(forKey: note) ?? song.selectedTrack
+            engine.liveNote(track: origin, kind: .synth, key: note, velocity: 0, on: false)
+            if origin == song.selectedTrack {
+                captureNoteOff(key: note)
+                recordRelease(key: note)
+            }
             return
         }
+        heldExternalKeys[note] = song.selectedTrack
         engine.liveNote(track: song.selectedTrack, kind: .synth, key: note, velocity: velocity, on: true)
         captureNoteOn(key: note, velocity: velocity)
         recordHit(key: note, velocity: velocity)
@@ -2223,6 +2237,8 @@ final class Brain: ObservableObject {
     /// Launch one track's clip in the selected scene (17.1 semantics).
     func sessionLaunchTrack(_ t: Int) {
         guard poweredOn, song.tracks.indices.contains(t) else { return }
+        if menu == .browser { cancelBrowserPreview(); menu = .none }
+        if menu == .auPresets { cancelAUPresetPreview(); menu = .none }
         adjust { $0.selectedTrack = t }
         if song.tracks[t].clips[song.selectedScene].isEmpty {
             engine.stopTrack(t)

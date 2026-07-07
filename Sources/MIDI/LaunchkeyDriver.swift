@@ -33,6 +33,9 @@ final class LaunchkeyDriver {
     private var clockTempo: Double = 0
     private var lastBitmap = [UInt8]()
     private var lastBitmapAt = Date.distantPast
+    /// Mini MK4 knobs are absolute pots (ch16 CC 0x15-0x1C, proven on the
+    /// actual unit) — convert to deltas for Brain's relative encoder API.
+    private var lastPot = [Int?](repeating: nil, count: 8)
 
     init(midi: MIDIManager) { self.midi = midi }
 
@@ -72,6 +75,18 @@ final class LaunchkeyDriver {
         connected = false
     }
 
+    /// XL powered off: darken the whole surface (LEDs, buttons, screen).
+    func powerDark() {
+        guard connected else { return }
+        for note in topRow + bottomRow { send([0x90, note, 0]) }
+        for cell in 0..<16 { send([0x99, drumBase + UInt8(cell), 0]) }
+        send([0xB3, 0x73, 0]); send([0xB3, 0x75, 0])
+        lastRGB.removeAll(); lastPulse.removeAll(); lastButton.removeAll()
+        lastBitmap = [UInt8](repeating: 0, count: 1216)
+        sysex([0x09, 0x20] + lastBitmap)
+        clockTimer?.cancel(); clockTimer = nil; clockTempo = 0
+    }
+
     func disconnect() {
         guard connected else { return }
         for note in topRow + bottomRow { send([0x90, note, 0]) }
@@ -84,20 +99,39 @@ final class LaunchkeyDriver {
 
     /// AUSeq-proven routing: one handler for both ports — DAW pads/buttons
     /// match by note/CC tables, everything else is the keybed.
-    func handle(_ message: MIDIMessage) {
+    func handle(_ message: MIDIMessage, isDAWPort: Bool) {
         guard connected, let brain else { return }
+        // Keybed lives on the MIDI port; only the DAW port carries pads —
+        // keeps high keybed notes (96-119) from being eaten as pad hits.
+        let padCapable = isDAWPort || !midi.sourceNames.contains {
+            $0.localizedCaseInsensitiveContains("launchkey")
+                && $0.localizedCaseInsensitiveContains("daw")
+        }
         switch message {
         case let .controlChange(cc, value, ch):
             if ch == 6 {                                 // ch7: shift + mode echoes
                 if cc == 0x3F { shiftHeld = value > 0 }
                 return
             }
-            if ch == 15, (0x55...0x5C).contains(cc) {    // relative encoders
-                let delta = Int(value) - 64
-                if delta != 0 { brain.encoder(Int(cc - 0x55), delta: delta) }
-                return
+            if ch == 15 {
+                if (0x15...0x1C).contains(cc) {          // absolute pots (Mini)
+                    let i = Int(cc - 0x15)
+                    let v = Int(value)
+                    if let last = lastPot[i] {
+                        let ticks = (v - last) / 2
+                        if ticks != 0 { brain.encoder(i, delta: ticks); lastPot[i] = last + ticks * 2 }
+                    } else {
+                        lastPot[i] = v
+                    }
+                    return
+                }
+                if (0x55...0x5C).contains(cc) {          // relative (full-size MK4)
+                    let delta = Int(value) - 64
+                    if delta != 0 { brain.encoder(Int(cc - 0x55), delta: delta) }
+                    return
+                }
             }
-            if ch == 14, (0x55...0x5C).contains(cc) {    // encoder touch
+            if ch == 14, (0x55...0x5C).contains(cc) {    // encoder touch (full-size)
                 brain.encoderTouch(Int(cc - 0x55), down: value > 0)
                 return
             }
@@ -116,7 +150,7 @@ final class LaunchkeyDriver {
                 return
             }
             guard ch == 0 else { return }
-            if let idx = padIndex(note) { padPressed(idx, velocity: Int(velocity), down: true); return }
+            if padCapable, let idx = padIndex(note) { padPressed(idx, velocity: Int(velocity), down: true); return }
             brain.externalNote(Int(note), velocity: Int(velocity), on: true)
         case let .noteOff(note, ch):
             if ch == 9 {
@@ -126,7 +160,7 @@ final class LaunchkeyDriver {
                 return
             }
             guard ch == 0 else { return }
-            if let idx = padIndex(note) { padPressed(idx, velocity: 0, down: false); return }
+            if padCapable, let idx = padIndex(note) { padPressed(idx, velocity: 0, down: false); return }
             brain.externalNote(Int(note), velocity: 0, on: false)
         case let .pitchBend(value, ch):
             guard ch == 0 else { return }
@@ -145,25 +179,31 @@ final class LaunchkeyDriver {
     /// DAW-mode button CCs (ch1). Returns true when consumed.
     private func button(_ cc: UInt8, down: Bool) -> Bool {
         guard let brain else { return false }
+        // Mini MK4's transmit set (captured on the unit): 0x73 play,
+        // 0x75 rec, 0x6A/0x6B track -/+, 0x33/0x34 arrows, 0x68 pad-mode.
         switch cc {
         case 0x73:
             brain.button("play", down: down)
         case 0x75:
             brain.button(shiftHeld ? "capture" : "record", down: down)
-        case 0x67: if down { brain.externalTrackSelect(-1) }   // track left
-        case 0x66: if down { brain.externalTrackSelect(1) }    // track right
-        case 0x33: if down { brain.externalParamBank(-1) }     // encoder bank up
-        case 0x34: if down { brain.externalParamBank(1) }      // encoder bank down
-        case 0x6A, 0x6B:                                       // pad bank up/down
+        case 0x6A, 0x6B:
             guard down else { return true }
             let dir = cc == 0x6A ? -1 : 1
-            switch layer {
-            case .session: brain.externalScene(dir)
-            case .step: brain.button(dir < 0 ? "left" : "right", down: true)
-            case .drum: brain.button(dir < 0 ? "minus" : "plus", down: true)
+            if shiftHeld {
+                brain.externalScene(dir)
+            } else if layer == .step {
+                // Bar paging; immediate release so held steps don't arm the
+                // long-press transpose variant.
+                brain.button(dir < 0 ? "left" : "right", down: true)
+                brain.button(dir < 0 ? "left" : "right", down: false)
+            } else {
+                brain.externalTrackSelect(dir)
             }
-        case 0x68: if down { brain.launchCurrentScene() }      // scene launch
-        case 0x69: if down { cycleLayer() }                    // function "..."
+        case 0x33: if down { brain.externalParamBank(-1) }     // arrow up
+        case 0x34: if down { brain.externalParamBank(1) }      // arrow down
+        case 0x68:                                             // pad-mode button
+            guard down else { return true }
+            if shiftHeld { brain.launchCurrentScene() } else { cycleLayer() }
         default: return false
         }
         return true
@@ -190,6 +230,7 @@ final class LaunchkeyDriver {
     }
 
     private func cycleLayer() {
+        brain?.releaseModifiers()   // strand no held pads/steps across layers
         layer = PadLayer(rawValue: (layer.rawValue + 1) % PadLayer.allCases.count) ?? .session
         if layer == .drum {
             send([0xB6, 0x1D, 0x01])   // drum pad mode
@@ -324,17 +365,20 @@ final class LaunchkeyDriver {
     private func mirrorDisplay(_ image: CGImage?) {
         guard let image, Date().timeIntervalSince(lastBitmapAt) > 0.15 else { return }
         var gray = [UInt8](repeating: 0, count: 128 * 64)
-        guard let ctx = CGContext(data: &gray, width: 128, height: 64,
-                                  bitsPerComponent: 8, bytesPerRow: 128,
-                                  space: CGColorSpaceCreateDeviceGray(),
-                                  bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return }
-        ctx.interpolationQuality = .medium
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: 128, height: 64))
         var packed = [UInt8](repeating: 0, count: 1216)
-        for row in 0..<64 {
-            let src = (63 - row) * 128   // CG bitmaps are bottom-up
-            for col in 0..<128 where gray[src + col] > 90 {
-                packed[row * 19 + col / 7] |= UInt8(0x40) >> UInt8(col % 7)
+        gray.withUnsafeMutableBytes { raw in
+            guard let ctx = CGContext(data: raw.baseAddress, width: 128, height: 64,
+                                      bitsPerComponent: 8, bytesPerRow: 128,
+                                      space: CGColorSpaceCreateDeviceGray(),
+                                      bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return }
+            ctx.interpolationQuality = .medium
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: 128, height: 64))
+            let px = raw.bindMemory(to: UInt8.self)
+            for row in 0..<64 {
+                let src = (63 - row) * 128   // CG bitmaps are bottom-up
+                for col in 0..<128 where px[src + col] > 90 {
+                    packed[row * 19 + col / 7] |= UInt8(0x40) >> UInt8(col % 7)
+                }
             }
         }
         guard packed != lastBitmap else { return }

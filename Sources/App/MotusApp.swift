@@ -17,7 +17,15 @@ struct MotusApp: App {
                 .environmentObject(brain)
                 .statusBarHidden(true)
                 .persistentSystemOverlays(.hidden)
-                .onAppear { brain.start() }
+                .onAppear {
+                    brain.start()
+                    if ProcessInfo.processInfo.arguments.contains("-crashtest") {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                            brain.button("track2", down: true)
+                            brain.button("track2", down: false)
+                        }
+                    }
+                }
         }
         .onChange(of: scenePhase) { _, phase in
             // Gesture cancellation on app switch never delivers releases —

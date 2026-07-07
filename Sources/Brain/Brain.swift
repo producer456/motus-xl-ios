@@ -1318,7 +1318,10 @@ final class Brain: ObservableObject {
             if mode == .setOverview, selectedOverviewSlot != currentSlot {
                 loadSlot(selectedOverviewSlot)
             }
-            adjust { $0.selectedTrack = min(index, song.tracks.count - 1) }
+            // Clamp OUTSIDE the closure: reading self.song while adjust
+            // mutates it inout is an exclusivity violation (crash).
+            let clamped = min(index, song.tracks.count - 1)
+            adjust { $0.selectedTrack = clamped }
             barPage = 0
             if mode == .setOverview { mode = .note }
         }

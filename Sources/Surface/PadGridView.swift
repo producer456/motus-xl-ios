@@ -117,26 +117,26 @@ final class PadGridUIView: UIView {
                 let color = UIColor(red: 0.08 + 0.80 * rgb.x, green: 0.08 + 0.80 * rgb.y,
                                     blue: 0.08 + 0.80 * rgb.z, alpha: 1)
                 padLayers[index].backgroundColor = color.cgColor
-                let hot = UIColor(red: 0.13 + 0.87 * rgb.x, green: 0.13 + 0.87 * rgb.y,
-                                  blue: 0.13 + 0.87 * rgb.z, alpha: 0.30)
+                let hot = UIColor(red: 0.38 + 0.62 * rgb.x, green: 0.38 + 0.62 * rgb.y,
+                                  blue: 0.38 + 0.62 * rgb.z, alpha: 0.55)
                 let mid = UIColor(red: 0.10 + 0.90 * rgb.x, green: 0.10 + 0.90 * rgb.y,
                                   blue: 0.10 + 0.90 * rgb.z, alpha: 1)
                 hotspotLayers[index].colors = [hot.cgColor, mid.withAlphaComponent(0.10).cgColor,
                                                UIColor.clear.cgColor]
-                hotspotLayers[index].locations = [0.0, 0.65, 1.0]
+                hotspotLayers[index].locations = [0.0, 0.45, 1.0]
                 hotspotLayers[index].isHidden = false
                 // The pad IS the light source: its silicone rim glows brightest.
                 padLayers[index].borderWidth = 1.5
                 padLayers[index].borderColor = UIColor(
-                    red: 0.4 + 0.6 * rgb.x, green: 0.4 + 0.6 * rgb.y,
-                    blue: 0.4 + 0.6 * rgb.z, alpha: 0.9).cgColor
+                    red: 0.72 * rgb.x, green: 0.72 * rgb.y,
+                    blue: 0.72 * rgb.z, alpha: 0.85).cgColor
                 // Deck bleed is minimal on the real unit — color shows only in the
                 // narrow gaps between pads and dies before open deck. Tight radius,
                 // low opacity.
                 padLayers[index].shadowColor = UIColor(
                     red: rgb.x, green: rgb.y, blue: rgb.z, alpha: 1).cgColor
-                padLayers[index].shadowOpacity = 0.22
-                padLayers[index].shadowRadius = max(2, gap)
+                padLayers[index].shadowOpacity = 0.38
+                padLayers[index].shadowRadius = max(6, gap * 3)
                 padLayers[index].shadowOffset = .zero
                 if (channels[note] ?? 0) != 0 {
                     startPulse(padLayers[index])

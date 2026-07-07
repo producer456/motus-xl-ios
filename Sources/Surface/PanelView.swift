@@ -6,6 +6,8 @@ import SwiftUI
 /// original Move's wide pad shape. Laid out in a 1000x699 design space.
 struct PanelView: View {
     @EnvironmentObject var client: Brain
+    @StateObject private var motion = MotionSource()
+    @Environment(\.scenePhase) private var scenePhase
 
     static let designSize = CGSize(width: 1014, height: 699)
 
@@ -16,6 +18,10 @@ struct PanelView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 panel(scale: scale)
+                    .onAppear { motion.start() }
+                    .onChange(of: scenePhase) { _, phase in
+                        phase == .active ? motion.start() : motion.stop()
+                    }
                     .frame(width: Self.designSize.width * scale,
                            height: Self.designSize.height * scale)
                     .position(x: geo.size.width / 2, y: geo.size.height / 2)
@@ -25,12 +31,24 @@ struct PanelView: View {
         // safe area (device insets are larger than the sim's, leaving a
         // black border otherwise).
         .ignoresSafeArea()
+        .sheet(isPresented: Binding(get: { client.auSheetVC != nil },
+                                    set: { if !$0 { client.auSheetVC = nil } })) {
+            if let vc = client.auSheetVC {
+                AUPluginView(viewController: vc)
+                    .ignoresSafeArea()
+            }
+        }
     }
 
     private func panel(scale s: CGFloat) -> some View {
         ZStack {
-            if !client.bareTheme { chassis(scale: s) }
+            switch client.themeStyle {
+            case 1: EmptyView()                    // bare: iPad glass only
+            case 2: vintageChassis(scale: s)       // walnut + charcoal
+            default: chassis(scale: s)
+            }
             controls(scale: s)
+                .offset(x: motion.tilt.x * 2.5 * s, y: motion.tilt.y * 2.5 * s)
         }
     }
 
@@ -38,21 +56,40 @@ struct PanelView: View {
     /// The bare theme drops all of it — controls float on the iPad's glass.
     @ViewBuilder
     private func chassis(scale s: CGFloat) -> some View {
+        let base = client.chassisColor
+        let shell = Color(red: base.x, green: base.y, blue: base.z)
+        let light = Color(red: min(1, base.x * 1.22), green: min(1, base.y * 1.22),
+                          blue: min(1, base.z * 1.22))
+        let edge = Color(red: base.x * 0.55, green: base.y * 0.55, blue: base.z * 0.55)
+        let rim = Color(red: min(1, base.x * 2.2 + 0.08), green: min(1, base.y * 2.2 + 0.08),
+                        blue: min(1, base.z * 2.2 + 0.08))
         Group {
-            // Body shell — matte black with a faint top-light sheen.
+            // Body shell — matte, user-tinted, faint top-light sheen.
             RoundedRectangle(cornerRadius: 26 * s)
                 .fill(
-                    LinearGradient(colors: [Color(white: 0.105), Chrome.body, Chrome.bodyEdge],
+                    LinearGradient(colors: [light, shell, edge],
                                    startPoint: .top, endPoint: .bottom)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 26 * s)
                         .strokeBorder(
-                            LinearGradient(colors: [Color(white: 0.24), Chrome.bodyEdge],
+                            LinearGradient(colors: [rim, edge],
                                            startPoint: .top, endPoint: .bottom),
                             lineWidth: 1.5 * s)
                 )
                 .shadow(color: .black.opacity(0.8), radius: 18 * s, y: 6 * s)
+
+            // Micro-grain so the deck reads as material, not vector fill.
+            GrainOverlay()
+                .clipShape(RoundedRectangle(cornerRadius: 26 * s))
+
+            // Room light: a broad soft sheen that glides with device tilt.
+            RadialGradient(colors: [Color.white.opacity(0.05), .clear],
+                           center: .init(x: 0.5 - motion.tilt.x * 0.35,
+                                         y: 0.12 - motion.tilt.y * 0.25),
+                           startRadius: 40 * s, endRadius: 620 * s)
+                .clipShape(RoundedRectangle(cornerRadius: 26 * s))
+                .allowsHitTesting(false)
 
             // Edge vignette: light falls off toward the chassis edges.
             RadialGradient(colors: [.clear, .black.opacity(0.16)],
@@ -62,18 +99,18 @@ struct PanelView: View {
                 .allowsHitTesting(false)
 
             // Chassis screws.
-            Screw(diameter: 13 * s, angle: 37).position(x: 24 * s, y: 24 * s)
-            Screw(diameter: 13 * s, angle: 104).position(x: 990 * s, y: 24 * s)
-            Screw(diameter: 13 * s, angle: 61).position(x: 24 * s, y: 676 * s)
-            Screw(diameter: 13 * s, angle: 158).position(x: 990 * s, y: 676 * s)
+            Screw(diameter: 9 * s, angle: 37).position(x: 24 * s, y: 24 * s)
+            Screw(diameter: 9 * s, angle: 104).position(x: 990 * s, y: 24 * s)
+            Screw(diameter: 9 * s, angle: 61).position(x: 24 * s, y: 676 * s)
+            Screw(diameter: 9 * s, angle: 158).position(x: 990 * s, y: 676 * s)
 
             // Recessed wells the pads and steps sit in.
             RecessedWell(cornerRadius: 12 * s)
-                .frame(width: 690 * s, height: 478 * s)
-                .position(x: 519 * s, y: 379 * s)
+                .frame(width: 712 * s, height: 508 * s)
+                .position(x: 520 * s, y: 372 * s)
             RecessedWell(cornerRadius: 10 * s)
-                .frame(width: 694 * s, height: 54 * s)
-                .position(x: 520 * s, y: 651 * s)
+                .frame(width: 694 * s, height: 48 * s)
+                .position(x: 520 * s, y: 653 * s)
 
             // Display bezel plate.
             RoundedRectangle(cornerRadius: 8 * s)
@@ -85,14 +122,14 @@ struct PanelView: View {
                                            startPoint: .top, endPoint: .bottom),
                             lineWidth: 1.2 * s)
                 )
-                .frame(width: 216 * s, height: 114 * s)
-                .position(x: 507 * s, y: 74 * s)
+                .frame(width: 190 * s, height: 102 * s)
+                .position(x: 507 * s, y: 66 * s)
 
             Circle() // microphone hole
                 .fill(Color.black)
                 .overlay(Circle().strokeBorder(Color(white: 0.3), lineWidth: 0.8 * s))
                 .frame(width: 8 * s, height: 8 * s)
-                .position(x: 916 * s, y: 24 * s)
+                .position(x: 934 * s, y: 22 * s)
 
 
             // XL wordmark on the deck.
@@ -100,7 +137,84 @@ struct PanelView: View {
                 .font(.system(size: 11 * s, weight: .bold, design: .rounded))
                 .kerning(2 * s)
                 .foregroundStyle(Color(white: 0.30))
-                .position(x: 78 * s, y: 415 * s)
+                .position(x: 72 * s, y: 428 * s)
+        }
+    }
+
+    /// '70s hardware fantasy: warm charcoal deck between walnut cheeks,
+    /// engraved zone frames — same controls, different era.
+    @ViewBuilder
+    private func vintageChassis(scale s: CGFloat) -> some View {
+        Group {
+            // Warm charcoal deck.
+            RoundedRectangle(cornerRadius: 18 * s)
+                .fill(
+                    LinearGradient(colors: [Color(red: 0.170, green: 0.160, blue: 0.148),
+                                            Color(red: 0.128, green: 0.120, blue: 0.110),
+                                            Color(red: 0.085, green: 0.080, blue: 0.072)],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18 * s)
+                        .strokeBorder(Color.black.opacity(0.8), lineWidth: 1.5 * s)
+                )
+            GrainOverlay(opacity: 0.07)
+                .clipShape(RoundedRectangle(cornerRadius: 18 * s))
+            RadialGradient(colors: [.clear, .black.opacity(0.22)],
+                           center: .center, startRadius: 250 * s, endRadius: 720 * s)
+                .clipShape(RoundedRectangle(cornerRadius: 18 * s))
+                .allowsHitTesting(false)
+
+            // Walnut cheeks.
+            WoodRail(scale: s)
+                .frame(width: 20 * s, height: 699 * s)
+                .position(x: 10 * s, y: 349.5 * s)
+            WoodRail(scale: s)
+                .frame(width: 20 * s, height: 699 * s)
+                .position(x: 1004 * s, y: 349.5 * s)
+
+            // Engraved zone frames (the reference's section outlines).
+            ForEach(0..<3, id: \.self) { zone in
+                let frames: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+                    (94, 18, 304, 82),    // left encoder wing (knobs 99-366, dots to 95)
+                    (639, 18, 285, 82),   // right encoder wing (knobs 648-915)
+                    (34, 470, 78, 140),   // plugin bay
+                ]
+                let f = frames[zone]
+                RoundedRectangle(cornerRadius: 8 * s)
+                    .strokeBorder(Color.white.opacity(0.14), lineWidth: 1 * s)
+                    .frame(width: f.2 * s, height: f.3 * s)
+                    .position(x: (f.0 + f.2 / 2) * s, y: (f.1 + f.3 / 2) * s)
+                    .allowsHitTesting(false)
+            }
+
+            // Recessed wells + screws + bezel, shared with the hardware theme.
+            RecessedWell(cornerRadius: 12 * s)
+                .frame(width: 712 * s, height: 508 * s)
+                .position(x: 520 * s, y: 372 * s)
+            RecessedWell(cornerRadius: 10 * s)
+                .frame(width: 694 * s, height: 48 * s)
+                .position(x: 520 * s, y: 653 * s)
+            RoundedRectangle(cornerRadius: 8 * s)
+                .fill(Color(white: 0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8 * s)
+                        .strokeBorder(Color(red: 0.55, green: 0.44, blue: 0.30).opacity(0.5),
+                                      lineWidth: 1.2 * s)
+                )
+                .frame(width: 190 * s, height: 102 * s)
+                .position(x: 507 * s, y: 66 * s)
+            Screw(diameter: 9 * s, angle: 37).position(x: 40 * s, y: 24 * s)
+            Screw(diameter: 9 * s, angle: 104).position(x: 974 * s, y: 24 * s)
+            Screw(diameter: 9 * s, angle: 61).position(x: 40 * s, y: 676 * s)
+            Screw(diameter: 9 * s, angle: 158).position(x: 974 * s, y: 676 * s)
+
+            // Cream wordmark, badge style.
+            Text("MOVE XL")
+                .font(.system(size: 11 * s, weight: .bold, design: .rounded))
+                .kerning(2 * s)
+                .foregroundStyle(Color(red: 0.85, green: 0.80, blue: 0.68).opacity(0.65))
+                .position(x: 72 * s, y: 428 * s)
         }
     }
 
@@ -109,41 +223,68 @@ struct PanelView: View {
     private func controls(scale s: CGFloat) -> some View {
         ZStack {
             // ---- Top zone: the XL's big OLED (256x128), encoders, volume ----
-            DisplayView(image: client.displayImage)
-                .frame(width: 200 * s, height: 100 * s)
-                .position(x: 507 * s, y: 74 * s)
+            DisplayView(image: client.displayImage, tilt: motion.tilt)
+                .frame(width: 176 * s, height: 88 * s)
+                .position(x: 507 * s, y: 66 * s)
 
             ForEach(0..<8, id: \.self) { index in
-                EncoderView(index: index, diameter: 48 * s)
-                    .position(x: encoderX(index) * s, y: 52 * s)
+                EncoderView(index: index, diameter: 42 * s, tilt: motion.tilt, deepShadow: client.themeStyle == 2)
+                    .position(x: encoderX(index) * s, y: 58 * s)
                 Circle() // touch indicator dot under each encoder
                     .fill(Color(white: 0.38))
                     .frame(width: 6 * s, height: 6 * s)
-                    .position(x: encoderX(index) * s, y: 91 * s)
+                    .position(x: encoderX(index) * s, y: 92 * s)
             }
 
-            EncoderView(index: 8, diameter: 52 * s) // volume
-                .position(x: 962 * s, y: 60 * s)
+            EncoderView(index: 8, diameter: 48 * s, tilt: motion.tilt, deepShadow: client.themeStyle == 2) // volume
+                .position(x: 966 * s, y: 58 * s)
 
-            // ---- Left rail: wheel, back / mode ----
-            WheelView(diameter: 100 * s)
-                .position(x: 78 * s, y: 250 * s)
+            // Power button (the real unit's yellow rear button, surfaced).
+            HardwareButton {
+                client.button("power", down: true)
+            } onRelease: {
+                client.button("power", down: false)
+            } content: { pressed in
+                ZStack {
+                    RoundButton(diameter: 20 * s, lit: 0, pressed: pressed)
+                    Image(systemName: "power")
+                        .font(.system(size: 9 * s, weight: .bold))
+                        .foregroundStyle(client.poweredOn
+                                         ? Color(white: 0.95)
+                                         : Color(white: 0.28))
+                        .shadow(color: Color.white
+                            .opacity(client.poweredOn ? 0.6 : 0), radius: 3 * s)
+                }
+            }
+            .position(x: 62 * s, y: 22 * s)
 
-            FunctionButton(id: "back", systemImage: "chevron.left", diameter: 38 * s)
-                .position(x: 46 * s, y: 330 * s)
-            FunctionButton(id: "note", systemImage: "line.3.horizontal", diameter: 38 * s)
-                .position(x: 112 * s, y: 330 * s)
+            // ---- Left rail: wheel steppers, wheel, back / mode ----
+            FunctionButton(id: "wheelUp", systemImage: "chevron.up", diameter: 30 * s)
+                .position(x: 50 * s, y: 150 * s)
+            FunctionButton(id: "wheelDown", systemImage: "chevron.down", diameter: 30 * s)
+                .position(x: 94 * s, y: 150 * s)
+            WheelView(diameter: 88 * s, tilt: motion.tilt, deepShadow: client.themeStyle == 2)
+                .position(x: 72 * s, y: 222 * s)
+
+            FunctionButton(id: "back", systemImage: "chevron.left", diameter: 34 * s)
+                .position(x: 43 * s, y: 294 * s)
+            FunctionButton(id: "note", systemImage: "line.3.horizontal", diameter: 34 * s)
+                .position(x: 101 * s, y: 294 * s)
+
+            // Dedicated quantize — same 72-unit rail rhythm.
+            FunctionButton(id: "quantize", systemImage: "arrow.right.to.line", diameter: 34 * s)
+                .position(x: 72 * s, y: 366 * s)
 
             // ---- 8 track buttons, one per pad row ----
             ForEach(0..<8, id: \.self) { index in
-                TrackButton(index: index, size: CGSize(width: 20 * s, height: 36 * s))
-                    .position(x: 164 * s, y: padRowY(index) * s)
+                TrackButton(index: index, size: CGSize(width: 18 * s, height: 52 * s))
+                    .position(x: 153 * s, y: padRowY(index) * s)
             }
 
             // ---- 8x8 pad grid: original Move pad shape (wide 1.5:1) ----
-            PadGridView(colors: client.noteColors, channels: client.noteChannels)
-                .frame(width: 679 * s, height: 465 * s)
-                .position(x: 517 * s, y: 383 * s)
+            PadGridView(colors: client.noteColors, channels: client.noteChannels, tilt: motion.tilt)
+                .frame(width: 692 * s, height: 488 * s)
+                .position(x: 520 * s, y: 372 * s)
 
             // ---- Right rail (2 x 4 function buttons) ----
             rightButton("capture", icon: "viewfinder", column: 0, row: 0, s: s)
@@ -154,6 +295,13 @@ struct PanelView: View {
             rightButton("copy", icon: "square.on.square", column: 1, row: 2, s: s)
             rightButton("undo", icon: "arrow.uturn.backward", column: 0, row: 3, s: s)
             rightButton("shift", icon: "ellipsis", column: 1, row: 3, s: s)
+
+            // ---- Plugin bay: glass icon display + native-view button ----
+            PluginGlass(icon: client.auIcons[client.song.selectedTrack], scale: s)
+                .frame(width: 58 * s, height: 58 * s)
+                .position(x: 72 * s, y: 505 * s)
+            FunctionButton(id: "auview", systemImage: "macwindow", diameter: 32 * s)
+                .position(x: 72 * s, y: 578 * s)
 
             // ---- Bottom zone: transport, steps, nav ----
             FunctionButton(id: "play", systemImage: "play.fill", diameter: 48 * s, litColor: .green)
@@ -193,8 +341,12 @@ struct PanelView: View {
         4:  ("timer", nil),                  // Tempo
         5:  ("metronome.fill", nil),         // Metronome
         6:  ("shuffle", nil),                // Groove / swing
+        7:  ("pianokeys", nil),              // 16 Pitches
         8:  ("music.note", nil),             // Scale
         9:  ("bolt.fill", nil),              // Full Velocity
+        10: ("repeat.1", nil),               // Repeat / Arp
+        11: ("arrow.down.forward.circle", nil), // Sidechain duck
+        13: ("plus.square", nil),            // Prepare next clip slot
         14: (nil, "\u{00D7}2"),              // Double Loop  (×2)
         15: ("arrow.right.to.line", nil),    // Quantize
     ]
@@ -206,7 +358,7 @@ struct PanelView: View {
     }
 
     private func padRowY(_ row: Int) -> CGFloat {
-        175 + CGFloat(row) * 59.3
+        154 + CGFloat(row) * 62.2
     }
 
     private func stepX(_ index: Int) -> CGFloat {
@@ -215,9 +367,92 @@ struct PanelView: View {
 
     private func rightButton(_ id: String, icon: String? = nil, label: String? = nil,
                              column: Int, row: Int, s: CGFloat) -> some View {
-        FunctionButton(id: id, systemImage: icon, label: label, diameter: 44 * s,
+        FunctionButton(id: id, systemImage: icon, label: label, diameter: 40 * s,
                        litColor: id == "record" ? .red : .white)
-            .position(x: (888 + CGFloat(column) * 52) * s,
-                      y: (205 + CGFloat(row) * 118) * s)
+            .position(x: (906 + CGFloat(column) * 46) * s,
+                      y: (148 + CGFloat(row) * 56) * s)
+    }
+}
+
+
+/// A tiny display window showing the loaded plugin's icon behind glass.
+struct PluginGlass: View {
+    var icon: UIImage?
+    var scale: CGFloat
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 9 * scale)
+                .fill(Color(white: 0.045))
+            if let icon {
+                Image(uiImage: icon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 6 * scale))
+                    .padding(7 * scale)
+                    .opacity(0.92)
+            } else {
+                Image(systemName: "waveform")
+                    .font(.system(size: 18 * scale, weight: .light))
+                    .foregroundStyle(Color(white: 0.22))
+            }
+            // Glass: diagonal gloss sweep + edge reflection + deep bezel.
+            LinearGradient(colors: [.white.opacity(0.16), .white.opacity(0.02), .clear],
+                           startPoint: .topLeading, endPoint: .center)
+                .clipShape(RoundedRectangle(cornerRadius: 9 * scale))
+            LinearGradient(colors: [.clear, .white.opacity(0.05)],
+                           startPoint: .center, endPoint: .bottomTrailing)
+                .clipShape(RoundedRectangle(cornerRadius: 9 * scale))
+            RoundedRectangle(cornerRadius: 9 * scale)
+                .strokeBorder(
+                    LinearGradient(colors: [Color.black, Color(white: 0.26)],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: 1.3 * scale)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// Hosts the AUv3's own view controller inside the sheet.
+struct AUPluginView: UIViewControllerRepresentable {
+    let viewController: UIViewController
+
+    func makeUIViewController(context: Context) -> UIViewController { viewController }
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+}
+
+
+/// Procedural walnut: warm gradient + vertical grain streaks + sheen.
+struct WoodRail: View {
+    var scale: CGFloat
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.32, green: 0.21, blue: 0.12),
+                                    Color(red: 0.24, green: 0.15, blue: 0.085),
+                                    Color(red: 0.17, green: 0.10, blue: 0.055)],
+                           startPoint: .leading, endPoint: .trailing)
+            Canvas { ctx, size in
+                var seed: UInt64 = 0xC0FFEE
+                func rnd() -> Double {
+                    seed = seed &* 6364136223846793005 &+ 1442695040888963407
+                    return Double((seed >> 33) & 0xFFFF) / 65535.0
+                }
+                for _ in 0..<14 {
+                    let x = rnd() * size.width
+                    let wobble = rnd() * 2 - 1
+                    var path = Path()
+                    path.move(to: CGPoint(x: x, y: 0))
+                    path.addCurve(to: CGPoint(x: x + wobble * 3, y: size.height),
+                                  control1: CGPoint(x: x + wobble * 5, y: size.height * 0.33),
+                                  control2: CGPoint(x: x - wobble * 4, y: size.height * 0.66))
+                    ctx.stroke(path, with: .color(.black.opacity(0.10 + rnd() * 0.12)),
+                               lineWidth: 0.6 + rnd() * 1.1)
+                }
+            }
+            LinearGradient(colors: [.white.opacity(0.10), .clear, .black.opacity(0.25)],
+                           startPoint: .leading, endPoint: .trailing)
+        }
+        .allowsHitTesting(false)
     }
 }

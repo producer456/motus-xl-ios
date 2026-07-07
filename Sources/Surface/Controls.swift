@@ -137,9 +137,18 @@ struct StepButton: View {
             client.step(index, down: false)
         } content: { pressed in
             ZStack {
-                RoundButton(diameter: diameter, lit: 0, pressed: pressed)
-                // Hardware look: the cap stays dark; only the small LED
-                // window in the middle lights (white = note, green =
+                // Hardware look (macro-photo verified): steps are FLUSH with
+                // the deck — a flat cap defined by a thin groove seam, not a
+                // raised or recessed button.
+                Circle()
+                    .fill(Color(white: 0.125))
+                Circle()
+                    .strokeBorder(Color.black.opacity(0.75), lineWidth: max(1, diameter * 0.05))
+                Circle() // faint light catch on the groove's lower edge
+                    .trim(from: 0.08, to: 0.42)
+                    .stroke(Color.white.opacity(0.05), lineWidth: max(0.6, diameter * 0.03))
+                    .padding(-diameter * 0.02)
+                // The small LED window lights (white = note, green =
                 // playhead, dim = empty-in-bar), with a tight bloom.
                 if lit > 0.02 {
                     let color = Color(red: 0.15 + 0.85 * rgb.x,
@@ -154,7 +163,16 @@ struct StepButton: View {
                         .fill(Color(white: 0.30))
                         .frame(width: diameter * 0.12, height: diameter * 0.12)
                 }
+                // Beat marker dash under the dot on steps 1/5/9/13 (photo).
+                if index % 4 == 0 {
+                    Rectangle()
+                        .fill(Color(white: lit > 0.02 ? 0.85 : 0.30))
+                        .frame(width: diameter * 0.18, height: max(1, diameter * 0.045))
+                        .offset(y: diameter * 0.18)
+                }
             }
+            .frame(width: diameter, height: diameter)
+            .scaleEffect(pressed ? 0.96 : 1)
         }
     }
 }
@@ -198,7 +216,7 @@ struct StepLegend: View {
 
 struct TrackButton: View {
     @EnvironmentObject var client: Brain
-    var index: Int   // 0 (top) ... 3
+    var index: Int   // 0 (top) ... 7
     var size: CGSize
 
     var body: some View {
@@ -235,12 +253,14 @@ struct EncoderView: View {
     @EnvironmentObject var client: Brain
     var index: Int        // 0..7, or 8 = volume
     var diameter: CGFloat
+    var tilt: CGPoint = .zero
+    var deepShadow = false
 
     @State private var accumulated: CGFloat = 0
     @State private var touching = false
 
     var body: some View {
-        KnobView(diameter: diameter)
+        KnobView(diameter: diameter, tilt: tilt, deepShadow: deepShadow)
             .contentShape(Circle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -250,8 +270,9 @@ struct EncoderView: View {
                             accumulated = 0
                             client.encoderTouch(index, down: true)
                         }
-                        // Vertical drag; ~7 pt per detent.
-                        let delta = -value.translation.height - accumulated
+                        // Horizontal drag: right = increase, left = decrease
+                        // (~7 pt per detent).
+                        let delta = value.translation.width - accumulated
                         let ticks = Int(delta / 7)
                         if ticks != 0 {
                             accumulated += CGFloat(ticks) * 7
@@ -277,6 +298,8 @@ struct EncoderView: View {
 struct WheelView: View {
     @EnvironmentObject var client: Brain
     var diameter: CGFloat
+    var tilt: CGPoint = .zero
+    var deepShadow = false
 
     @State private var lastAngle: CGFloat?
     @State private var touching = false
@@ -288,7 +311,8 @@ struct WheelView: View {
             Circle()
                 .fill(
                     RadialGradient(colors: [Color(white: 0.20), Color(white: 0.06)],
-                                   center: .init(x: 0.38, y: 0.32),
+                                   center: .init(x: 0.38 - tilt.x * 0.18,
+                                                 y: 0.32 - tilt.y * 0.18),
                                    startRadius: 0, endRadius: diameter * 0.8)
                 )
             Circle()
@@ -311,6 +335,8 @@ struct WheelView: View {
         }
         .frame(width: diameter, height: diameter)
         .shadow(color: .black.opacity(0.6), radius: diameter * 0.05, y: diameter * 0.03)
+        .shadow(color: .black.opacity(deepShadow ? 0.4 : 0), radius: diameter * 0.13,
+                x: -tilt.x * diameter * 0.07, y: diameter * 0.11 - tilt.y * diameter * 0.05)
         .contentShape(Circle())
         .gesture(
             DragGesture(minimumDistance: 0)

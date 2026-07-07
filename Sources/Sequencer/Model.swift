@@ -9,15 +9,42 @@ struct Note: Codable, Equatable {
     /// Nudge as a fraction of a step (manual 11.4). Optional so sets saved
     /// before this field existed still decode.
     var offset: Double?
+    /// 16 Pitches (manual 9.2): semitone offset from the sample's root for
+    /// pitched drum-cell notes. nil = unpitched. Optional so old sets decode.
+    var pitch: Int?
 
     var off: Double { offset ?? 0 }
 }
 
+/// One automation breakpoint: pos in (fractional) steps, raw param value.
+struct AutoPoint: Codable, Equatable {
+    var pos: Double
+    var value: Double
+}
+
 struct Clip: Codable, Equatable {
-    var bars: Int = 1                   // 1/2/4/8
+    var bars: Int = 1                   // content END, in bars (1...16)
     var notes: [Note] = []
+    /// Loop START bar (manual 12.1: press start+end steps in Loop Mode).
+    /// Notes before it stay in the clip but don't play. Optional so old
+    /// sets decode (nil = 0).
+    var loopStart: Int?
+    /// Parameter automation (manual 14.2): lane key -> breakpoints. Internal
+    /// lanes: cutoff/res/attack/release/delay. AU lanes: "au.<address>".
+    var automation: [String: [AutoPoint]]?
+    /// Deactivated lanes (manual 14.2.1) — kept but not played.
+    var autoOff: [String]?
     var steps: Int { bars * 16 }
     var isEmpty: Bool { notes.isEmpty }
+
+    /// First step of the playing region.
+    var loopStartStep: Int { min(max(0, loopStart ?? 0), max(0, bars - 1)) * 16 }
+    /// Length of the playing region in steps (always >= 16).
+    var loopSteps: Int { max(16, steps - loopStartStep) }
+    /// Map an absolute transport step into the playing region.
+    func localStep(_ absStep: Int) -> Int {
+        loopStartStep + ((absStep % loopSteps) + loopSteps) % loopSteps
+    }
 
     mutating func toggle(step: Int, key: Int, velocity: Int = 100) {
         if let i = notes.firstIndex(where: { $0.step == step && $0.key == key }) {
@@ -34,12 +61,27 @@ struct Track: Codable, Equatable {
     var kind: TrackKind
     var name: String
     var soundIndex: Int = 0             // kit index (drum) or preset index (synth)
+    /// AUv3 instrument on this track ("type:subtype:manufacturer" fourCC
+    /// values, decimal). nil = internal synth. Optional so old sets decode.
+    var auIdentifier: String?
+    var auName: String?
+    var auPresetName: String?
     var volume: Double = 0.8
     var muted = false
     var clips: [Clip] = Array(repeating: Clip(), count: 8)   // 8 scenes
     var selectedPad: Int = 0            // drum: selected cell for step editing
     var octave: Int = 0                 // melodic layout octave shift
     var mutedCells: Set<Int> = []       // drum cell mutes
+    /// Per-drum-cell sample gain (pad-hold + Volume, manual 16.5). nil = 1.0.
+    var cellGains: [Int: Double]?
+    /// Sidechain (XL exclusive): this track ducks when `duckSource` fires.
+    /// duckCell scopes drum sources to one cell (nil = any note);
+    /// duckAmount = depth 0-1; duckRelease = seconds. All optional so old
+    /// sets decode.
+    var duckSource: Int?
+    var duckCell: Int?
+    var duckAmount: Double?
+    var duckRelease: Double?
 }
 
 struct Song: Codable, Equatable {
@@ -48,9 +90,14 @@ struct Song: Codable, Equatable {
     var swing: Double = 0               // 0...1 groove amount
     var rootNote: Int = 0               // 0 = C
     var scaleIndex: Int = 0
+    /// Chromatic pad layout (manual 9.1); nil/false = In-Key. Saved with the Set.
+    var chromatic: Bool?
     var tracks: [Track] = Song.defaultTracks()
     var selectedTrack: Int = 0
     var selectedScene: Int = 0
+    /// Set effects (manual 17.2): Dynamics thresh dB/ratio/makeup dB +
+    /// Saturator drive/color/mix. nil = defaults.
+    var fxParams: [Double]?
     var padColorIndex: Int = 0          // Set Overview pad color
 
     /// Move XL: 8 tracks — two drum, six synth.
@@ -131,15 +178,25 @@ enum Scales {
     ]
     static let noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
-    /// MIDI note for a melodic pad (index 0..63 on XL, row-major from
-    /// top-left). Bottom row starts at the root; each row up is +3 scale
-    /// degrees (Push-style in-key fourths).
-    static func padToNote(_ index: Int, root: Int, scale: [Int], octave: Int) -> Int {
+    /// MIDI note for a melodic pad (index 0..63, row-major from top-left).
+    /// In-Key (manual 9.1): each row is an octave walking the scale from the
+    /// root; short scales roll into the next octave within the row.
+    /// Chromatic: fretboard — right = +1 semitone, up = +5 (perfect fourth).
+    /// nil = the pad falls outside MIDI range (top rows at high octaves) —
+    /// inert and unlit rather than clamped onto a duplicate pitch (clamping
+    /// made the top-right pads share note 126: a buzzy blip + ghost greens).
+    static func padToNote(_ index: Int, root: Int, scale: [Int], octave: Int,
+                          chromatic: Bool = false) -> Int? {
         let row = 7 - index / 8      // 0 = bottom row
         let col = index % 8
-        let degree = row * 3 + col
-        let oct = degree / scale.count
-        let step = scale[degree % scale.count]
-        return min(126, max(1, 48 + root + octave * 12 + oct * 12 + step))
+        let note: Int
+        if chromatic {
+            note = 36 + root + octave * 12 + row * 5 + col
+        } else {
+            let oct = col / scale.count
+            let step = scale[col % scale.count]
+            note = 36 + root + (octave + row) * 12 + oct * 12 + step
+        }
+        return (1...126).contains(note) ? note : nil
     }
 }

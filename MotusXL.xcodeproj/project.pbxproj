@@ -8,8 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		03C60D8CBDFCD5E10F1A7225 /* Chrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0562D0C6403F664DC328F0F8 /* Chrome.swift */; };
+		0B6CD32F1683A697E1CD4731 /* PhonePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24945182818754D46EDD67CC /* PhonePanelView.swift */; };
 		15A2E7F236AD9CB07695CBDC /* PanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688AF6DA3BC7FB8A60FFBA87 /* PanelView.swift */; };
 		18DC3C6B11A9B61320DE50A9 /* AudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AEDAF1330A0357E561A2333 /* AudioEngine.swift */; };
+		190D9B6F941FB97C799D593C /* Motion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74727B3C220C014CDE53DC95 /* Motion.swift */; };
+		19E126C29E9BBC52703E5B4E /* LaunchkeyDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A3B3E84FAB9B47B16EC92DA /* LaunchkeyDriver.swift */; };
+		27157C6F6E25FB3C469DFBE8 /* MIDIManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9B2E60D251B65BF33283F09 /* MIDIManager.swift */; };
+		36115089F5D9822AA61B48A7 /* LaunchpadDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6D2870C59C675E974F583EC /* LaunchpadDriver.swift */; };
 		514842289C2D8C30C7AEBF78 /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 863534603281FD45A5E69628 /* Model.swift */; };
 		7AEF96BAE034EE786B7DEA7E /* PadGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB7E928B2A932BF3F22D1A6D /* PadGridView.swift */; };
 		8091933DFB5E8F12B24F9A40 /* DrumKits in Resources */ = {isa = PBXBuildFile; fileRef = 0D7FBAA5D3C4CA8469CFF59F /* DrumKits */; };
@@ -21,24 +26,31 @@
 		D0F16BEEE5B0DFFD3E70B9E5 /* DrumKits.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EA8CAAF184C75AD3E2BA02B /* DrumKits.swift */; };
 		E690DD9777E6BEBDFCBA2F91 /* DisplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E42468DD500B4B3D99B9C22 /* DisplayView.swift */; };
 		ED34BBB9D85098C4D214B351 /* SynthVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA53FFFA1A22CD2E8E1F7D59 /* SynthVoice.swift */; };
+		F25BC23AE4C38A0AAEFCC89E /* DockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71C009E76EE57DB4AF91B0CC /* DockView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		0562D0C6403F664DC328F0F8 /* Chrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chrome.swift; sourceTree = "<group>"; };
 		0D7FBAA5D3C4CA8469CFF59F /* DrumKits */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DrumKits; path = Resources/DrumKits; sourceTree = SOURCE_ROOT; };
 		0FC37DD6B3097242BA7CCF7C /* Screen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Screen.swift; sourceTree = "<group>"; };
+		24945182818754D46EDD67CC /* PhonePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePanelView.swift; sourceTree = "<group>"; };
 		2659C7694CA879D972213DB0 /* MotusApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotusApp.swift; sourceTree = "<group>"; };
 		2EA8CAAF184C75AD3E2BA02B /* DrumKits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrumKits.swift; sourceTree = "<group>"; };
 		3E42468DD500B4B3D99B9C22 /* DisplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayView.swift; sourceTree = "<group>"; };
 		4AEDAF1330A0357E561A2333 /* AudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEngine.swift; sourceTree = "<group>"; };
 		688AF6DA3BC7FB8A60FFBA87 /* PanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelView.swift; sourceTree = "<group>"; };
+		71C009E76EE57DB4AF91B0CC /* DockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockView.swift; sourceTree = "<group>"; };
+		74727B3C220C014CDE53DC95 /* Motion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Motion.swift; sourceTree = "<group>"; };
 		80E01276A221700CB413E8D4 /* Brain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Brain.swift; sourceTree = "<group>"; };
 		863534603281FD45A5E69628 /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
+		8A3B3E84FAB9B47B16EC92DA /* LaunchkeyDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchkeyDriver.swift; sourceTree = "<group>"; };
 		A6184528C9A23E194877EED2 /* Controls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controls.swift; sourceTree = "<group>"; };
 		C91C82E956736FD0AD609FC3 /* MotusXL.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MotusXL.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CA53FFFA1A22CD2E8E1F7D59 /* SynthVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynthVoice.swift; sourceTree = "<group>"; };
+		D6D2870C59C675E974F583EC /* LaunchpadDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchpadDriver.swift; sourceTree = "<group>"; };
 		E3CD41A32324F817D29087B9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		EB7E928B2A932BF3F22D1A6D /* PadGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PadGridView.swift; sourceTree = "<group>"; };
+		F9B2E60D251B65BF33283F09 /* MIDIManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDIManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -91,6 +103,7 @@
 				5E4C2522609342F920A3A522 /* App */,
 				9C8952390D9C07E4C69B0A13 /* Brain */,
 				1E8840DE1C49A9F12982939D /* Engine */,
+				E9196475CF24D5E0088D98C7 /* MIDI */,
 				1E171719B466C8D317A50E07 /* Sequencer */,
 				C44376467D582F91296BDE82 /* Surface */,
 			);
@@ -121,10 +134,23 @@
 				0562D0C6403F664DC328F0F8 /* Chrome.swift */,
 				A6184528C9A23E194877EED2 /* Controls.swift */,
 				3E42468DD500B4B3D99B9C22 /* DisplayView.swift */,
+				71C009E76EE57DB4AF91B0CC /* DockView.swift */,
+				74727B3C220C014CDE53DC95 /* Motion.swift */,
 				EB7E928B2A932BF3F22D1A6D /* PadGridView.swift */,
 				688AF6DA3BC7FB8A60FFBA87 /* PanelView.swift */,
+				24945182818754D46EDD67CC /* PhonePanelView.swift */,
 			);
 			path = Surface;
+			sourceTree = "<group>";
+		};
+		E9196475CF24D5E0088D98C7 /* MIDI */ = {
+			isa = PBXGroup;
+			children = (
+				8A3B3E84FAB9B47B16EC92DA /* LaunchkeyDriver.swift */,
+				D6D2870C59C675E974F583EC /* LaunchpadDriver.swift */,
+				F9B2E60D251B65BF33283F09 /* MIDIManager.swift */,
+			);
+			path = MIDI;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -204,11 +230,17 @@
 				03C60D8CBDFCD5E10F1A7225 /* Chrome.swift in Sources */,
 				8C981161AF44A72E44548E85 /* Controls.swift in Sources */,
 				E690DD9777E6BEBDFCBA2F91 /* DisplayView.swift in Sources */,
+				F25BC23AE4C38A0AAEFCC89E /* DockView.swift in Sources */,
 				D0F16BEEE5B0DFFD3E70B9E5 /* DrumKits.swift in Sources */,
+				19E126C29E9BBC52703E5B4E /* LaunchkeyDriver.swift in Sources */,
+				36115089F5D9822AA61B48A7 /* LaunchpadDriver.swift in Sources */,
+				27157C6F6E25FB3C469DFBE8 /* MIDIManager.swift in Sources */,
 				514842289C2D8C30C7AEBF78 /* Model.swift in Sources */,
+				190D9B6F941FB97C799D593C /* Motion.swift in Sources */,
 				BD8D13538DFDC4113ECA30A5 /* MotusApp.swift in Sources */,
 				7AEF96BAE034EE786B7DEA7E /* PadGridView.swift in Sources */,
 				15A2E7F236AD9CB07695CBDC /* PanelView.swift in Sources */,
+				0B6CD32F1683A697E1CD4731 /* PhonePanelView.swift in Sources */,
 				C9933EA3FD894CF8353955B0 /* Screen.swift in Sources */,
 				ED34BBB9D85098C4D214B351 /* SynthVoice.swift in Sources */,
 			);
@@ -221,6 +253,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = MotusXL.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -307,6 +340,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = MotusXL.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;

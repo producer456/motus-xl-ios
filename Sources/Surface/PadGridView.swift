@@ -8,6 +8,7 @@ struct PadGridView: UIViewRepresentable {
     @EnvironmentObject var client: Brain
     var colors: [Int: SIMD3<Double>]
     var channels: [Int: Int]
+    var tilt: CGPoint = .zero
 
     func makeUIView(context: Context) -> PadGridUIView {
         let view = PadGridUIView()
@@ -18,6 +19,7 @@ struct PadGridView: UIViewRepresentable {
     func updateUIView(_ view: PadGridUIView, context: Context) {
         view.client = client
         view.apply(colors: colors, channels: channels)
+        view.applyTilt(tilt)
     }
 }
 
@@ -26,6 +28,7 @@ final class PadGridUIView: UIView {
 
     static let columns = 8, rows = 8
     private var padLayers: [CALayer] = []
+    private var hotspotLayers: [CAGradientLayer] = []
     private var pillowLayers: [CAGradientLayer] = []
     private var touchPads: [UITouch: Int] = [:]
     private var lastColors: [Int: SIMD3<Double>] = [:]
@@ -49,6 +52,17 @@ final class PadGridUIView: UIView {
             pad.shadowOffset = CGSize(width: 0, height: 2)
             layer.addSublayer(pad)
             padLayers.append(pad)
+
+            // LED hotspot: a lit pad is brightest over the point source at
+            // its center, falling off into saturated color at the edges.
+            let hotspot = CAGradientLayer()
+            hotspot.type = .radial
+            hotspot.startPoint = CGPoint(x: 0.5, y: 0.48)
+            hotspot.endPoint = CGPoint(x: 1.15, y: 1.15)
+            hotspot.isHidden = true
+            hotspot.masksToBounds = true
+            layer.addSublayer(hotspot)
+            hotspotLayers.append(hotspot)
 
             // Pillow shading: soft top highlight fading out, faint shade at the
             // bottom edge — makes the flat layer read as domed silicone.
@@ -79,6 +93,8 @@ final class PadGridUIView: UIView {
             let radius = min(cellW, cellH) * 0.07
             padLayers[index].frame = frame
             padLayers[index].cornerRadius = radius
+            hotspotLayers[index].frame = frame
+            hotspotLayers[index].cornerRadius = radius
             pillowLayers[index].frame = frame
             pillowLayers[index].cornerRadius = radius
         }
@@ -96,30 +112,36 @@ final class PadGridUIView: UIView {
             let rgb = colors[note]
             let isLit = rgb.map { $0.max() > 0.02 } ?? false
             if let rgb, isLit {
-                // Backlit silicone: LED color shows through the translucent pad.
-                // Less white lift than before — the photo's lit pads stay saturated.
-                let color = UIColor(red: 0.15 + 0.85 * rgb.x, green: 0.15 + 0.85 * rgb.y,
-                                    blue: 0.15 + 0.85 * rgb.z, alpha: 1)
+                // Backlit silicone: saturated body color with a near-white
+                // hotspot over the LED itself.
+                let color = UIColor(red: 0.08 + 0.80 * rgb.x, green: 0.08 + 0.80 * rgb.y,
+                                    blue: 0.08 + 0.80 * rgb.z, alpha: 1)
                 padLayers[index].backgroundColor = color.cgColor
+                // No center hotspot (tried, David prefers the flat glow):
+                // the body color + edge + deck wash carry the illumination.
+                hotspotLayers[index].isHidden = true
                 // The pad IS the light source: its silicone rim glows brightest.
                 padLayers[index].borderWidth = 1.5
                 padLayers[index].borderColor = UIColor(
-                    red: 0.4 + 0.6 * rgb.x, green: 0.4 + 0.6 * rgb.y,
-                    blue: 0.4 + 0.6 * rgb.z, alpha: 0.9).cgColor
+                    red: 0.72 * rgb.x, green: 0.72 * rgb.y,
+                    blue: 0.72 * rgb.z, alpha: 0.85).cgColor
                 // Deck bleed is minimal on the real unit — color shows only in the
                 // narrow gaps between pads and dies before open deck. Tight radius,
                 // low opacity.
                 padLayers[index].shadowColor = UIColor(
                     red: rgb.x, green: rgb.y, blue: rgb.z, alpha: 1).cgColor
-                padLayers[index].shadowOpacity = 0.35
-                padLayers[index].shadowRadius = max(2, gap)
+                padLayers[index].shadowOpacity = 0.38
+                padLayers[index].shadowRadius = max(6, gap * 3)
                 padLayers[index].shadowOffset = .zero
                 if (channels[note] ?? 0) != 0 {
                     startPulse(padLayers[index])
+                    startPulse(hotspotLayers[index])
                 } else {
                     stopPulse(padLayers[index])
+                    stopPulse(hotspotLayers[index])
                 }
             } else {
+                hotspotLayers[index].isHidden = true
                 padLayers[index].backgroundColor = Self.unlitColor.cgColor
                 padLayers[index].borderWidth = 0
                 // Restore the plain dark contact shadow.
@@ -128,6 +150,26 @@ final class PadGridUIView: UIView {
                 padLayers[index].shadowRadius = 3
                 padLayers[index].shadowOffset = CGSize(width: 0, height: 2)
                 stopPulse(padLayers[index])
+                stopPulse(hotspotLayers[index])
+            }
+        }
+        CATransaction.commit()
+    }
+
+    /// Steer the pillow shading + contact shadows with the device tilt so
+    /// the silicone reads as lit from a fixed room light.
+    func applyTilt(_ tilt: CGPoint) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let start = CGPoint(x: 0.5 - tilt.x * 0.35, y: 0)
+        let end = CGPoint(x: 0.5 + tilt.x * 0.35, y: 1)
+        for i in pillowLayers.indices {
+            pillowLayers[i].startPoint = start
+            pillowLayers[i].endPoint = end
+            // Only steer the resting shadow, not a lit pad's colored bleed.
+            if padLayers[i].shadowColor == UIColor.black.cgColor {
+                padLayers[i].shadowOffset = CGSize(width: -tilt.x * 2.5,
+                                                   height: 2 - tilt.y * 2)
             }
         }
         CATransaction.commit()

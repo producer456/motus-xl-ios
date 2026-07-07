@@ -43,7 +43,9 @@ final class Brain: ObservableObject {
     let engine = AudioEngine()
     let midi = MIDIManager()
     private(set) var launchkey: LaunchkeyDriver?
+    private(set) var launchpad: LaunchpadDriver?
     var isRecording: Bool { recording }
+    var isSessionMode: Bool { mode == .session }
 
     // ---- Song / state ----
     private(set) var song = Song()
@@ -221,13 +223,22 @@ final class Brain: ObservableObject {
         let driver = LaunchkeyDriver(midi: midi)
         driver.brain = self
         launchkey = driver
+        let pad = LaunchpadDriver(midi: midi)
+        pad.brain = self
+        launchpad = pad
         midi.onMessage = { [weak self] message, source in
-            guard source.localizedCaseInsensitiveContains("launchkey") else { return }
-            let isDAW = source.localizedCaseInsensitiveContains("daw")
-            MainActor.assumeIsolated { self?.launchkey?.handle(message, isDAWPort: isDAW) }
+            if source.localizedCaseInsensitiveContains("launchkey") {
+                let isDAW = source.localizedCaseInsensitiveContains("daw")
+                MainActor.assumeIsolated { self?.launchkey?.handle(message, isDAWPort: isDAW) }
+            } else if source.localizedCaseInsensitiveContains("launchpad") {
+                MainActor.assumeIsolated { self?.launchpad?.handle(message) }
+            }
         }
         midi.onSetupChanged = { [weak self] in
-            MainActor.assumeIsolated { self?.launchkey?.connectIfPresent() }
+            MainActor.assumeIsolated {
+                self?.launchkey?.connectIfPresent()
+                self?.launchpad?.connectIfPresent()
+            }
         }
         midi.start()
         refresh()
@@ -1644,6 +1655,7 @@ final class Brain: ObservableObject {
         pendingNav = nil
         poweredOn = false
         launchkey?.powerDark()
+        launchpad?.powerDark()
         displayImage = nil          // OLED dark
         noteColors = [:]            // every LED off
         noteChannels = [:]
@@ -2252,6 +2264,13 @@ final class Brain: ObservableObject {
         refreshLeds()
     }
 
+    /// Right-column scene button: select + launch that scene (17.1).
+    func externalLaunchScene(_ scene: Int) {
+        guard poweredOn, (0..<8).contains(scene) else { return }
+        adjust { $0.selectedScene = scene }
+        launchCurrentScene()
+    }
+
     /// Pitch/mod strip passthrough — AU tracks only (David's call).
     func auPassthrough(_ bytes: [UInt8]) {
         guard poweredOn, engine.hasAU(track: song.selectedTrack) else { return }
@@ -2486,6 +2505,7 @@ final class Brain: ObservableObject {
         refreshScreen()
         refreshLeds()
         launchkey?.refresh()
+        launchpad?.refresh()
     }
 
     // XL display: 256x128 — menus get room, the main screen earns the extra

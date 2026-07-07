@@ -14,6 +14,7 @@
 		190D9B6F941FB97C799D593C /* Motion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74727B3C220C014CDE53DC95 /* Motion.swift */; };
 		19E126C29E9BBC52703E5B4E /* LaunchkeyDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A3B3E84FAB9B47B16EC92DA /* LaunchkeyDriver.swift */; };
 		27157C6F6E25FB3C469DFBE8 /* MIDIManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9B2E60D251B65BF33283F09 /* MIDIManager.swift */; };
+		36115089F5D9822AA61B48A7 /* LaunchpadDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6D2870C59C675E974F583EC /* LaunchpadDriver.swift */; };
 		514842289C2D8C30C7AEBF78 /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 863534603281FD45A5E69628 /* Model.swift */; };
 		7AEF96BAE034EE786B7DEA7E /* PadGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB7E928B2A932BF3F22D1A6D /* PadGridView.swift */; };
 		8091933DFB5E8F12B24F9A40 /* DrumKits in Resources */ = {isa = PBXBuildFile; fileRef = 0D7FBAA5D3C4CA8469CFF59F /* DrumKits */; };
@@ -44,6 +45,7 @@
 		A6184528C9A23E194877EED2 /* Controls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controls.swift; sourceTree = "<group>"; };
 		C91C82E956736FD0AD609FC3 /* MotusXL.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MotusXL.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CA53FFFA1A22CD2E8E1F7D59 /* SynthVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynthVoice.swift; sourceTree = "<group>"; };
+		D6D2870C59C675E974F583EC /* LaunchpadDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchpadDriver.swift; sourceTree = "<group>"; };
 		E3CD41A32324F817D29087B9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		EB7E928B2A932BF3F22D1A6D /* PadGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PadGridView.swift; sourceTree = "<group>"; };
 		F9B2E60D251B65BF33283F09 /* MIDIManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDIManager.swift; sourceTree = "<group>"; };
@@ -142,6 +144,7 @@
 			isa = PBXGroup;
 			children = (
 				8A3B3E84FAB9B47B16EC92DA /* LaunchkeyDriver.swift */,
+				D6D2870C59C675E974F583EC /* LaunchpadDriver.swift */,
 				F9B2E60D251B65BF33283F09 /* MIDIManager.swift */,
 			);
 			path = MIDI;
@@ -226,6 +229,7 @@
 				E690DD9777E6BEBDFCBA2F91 /* DisplayView.swift in Sources */,
 				D0F16BEEE5B0DFFD3E70B9E5 /* DrumKits.swift in Sources */,
 				19E126C29E9BBC52703E5B4E /* LaunchkeyDriver.swift in Sources */,
+				36115089F5D9822AA61B48A7 /* LaunchpadDriver.swift in Sources */,
 				27157C6F6E25FB3C469DFBE8 /* MIDIManager.swift in Sources */,
 				514842289C2D8C30C7AEBF78 /* Model.swift in Sources */,
 				190D9B6F941FB97C799D593C /* Motion.swift in Sources */,

@@ -65,10 +65,12 @@ final class LaunchkeyDriver {
         lastRGB.removeAll(); lastPulse.removeAll(); lastButton.removeAll()
         lastBitmap.removeAll()
         popup("MOTUS XL", "CONNECTED")
+        brain?.surfaceChanged("LAUNCHKEY MK4", connected: true)
         refresh()
     }
 
     private func drop() {
+        brain?.surfaceChanged("LAUNCHKEY MK4", connected: false)
         clockTimer?.cancel()
         clockTimer = nil
         clockTempo = 0

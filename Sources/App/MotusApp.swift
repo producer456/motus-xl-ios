@@ -19,6 +19,8 @@ struct MotusApp: App {
                 .persistentSystemOverlays(.hidden)
                 .onAppear {
                     brain.start()
+                    // Hands on hardware = no screen touches; don't sleep mid-jam.
+                    UIApplication.shared.isIdleTimerDisabled = true
                     if ProcessInfo.processInfo.arguments.contains("-crashtest") {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                             brain.button("track2", down: true)

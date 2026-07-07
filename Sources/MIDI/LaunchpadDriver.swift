@@ -37,6 +37,7 @@ final class LaunchpadDriver {
             let sent = midi.send([0xF0, 0x00, 0x20, 0x29, 0x02, 0x0D, 0x0E, 0x01, 0xF7],
                                  toPortMatchingAll: ["launchpad", "midi"])
             if sent {
+                if !connected { brain?.surfaceChanged("LAUNCHPAD MINI", connected: true) }
                 connected = true
                 lastSpec.removeAll(); lastCC.removeAll()
                 refresh()
@@ -44,6 +45,7 @@ final class LaunchpadDriver {
         } else if connected {
             clockTimer?.cancel(); clockTimer = nil; clockTempo = 0
             connected = false
+            brain?.surfaceChanged("LAUNCHPAD MINI", connected: false)
         }
     }
 

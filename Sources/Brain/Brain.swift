@@ -2303,6 +2303,13 @@ final class Brain: ObservableObject {
         launchCurrentScene()
     }
 
+    /// Driver hot-plug feedback — vital on the phone, where a connected
+    /// surface takes over most of the playing.
+    func surfaceChanged(_ name: String, connected: Bool) {
+        guard poweredOn else { return }
+        showOverlay(name, connected ? 1 : 0, connected ? "CONNECTED" : "DISCONNECTED")
+    }
+
     /// Pitch/mod strip passthrough — AU tracks only (David's call).
     func auPassthrough(_ bytes: [UInt8]) {
         guard poweredOn, engine.hasAU(track: song.selectedTrack) else { return }

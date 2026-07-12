@@ -1068,10 +1068,8 @@ final class Brain: ObservableObject {
     private func setLoopRegion(start: Int, endBar: Int) {
         edit { song in
             var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
-            if endBar < c.bars {
-                let limit = endBar * 16
-                c.notes.removeAll { $0.step >= limit }
-            }
+            // Shrinking KEEPS the notes past the end (manual model: outside
+            // the loop = silent, not deleted) — lengthening restores them.
             c.bars = min(16, max(1, endBar))
             c.loopStart = start > 0 ? start : nil
             song.tracks[song.selectedTrack].clips[song.selectedScene] = c
@@ -1111,6 +1109,9 @@ final class Brain: ObservableObject {
             let amount = Double(quantizePercent) / 100
             let g = Self.stepGrids[gridIdx].size
             for i in c.notes.indices {
+                // Out-of-loop notes (kept after a shrink) stay untouched —
+                // wrapping them would teleport hidden notes into the loop.
+                guard c.notes[i].step < c.steps else { continue }
                 let exact = Double(c.notes[i].step) + c.notes[i].off
                 let nearest = (exact / g).rounded() * g
                 var q = exact + (nearest - exact) * amount
@@ -1169,9 +1170,13 @@ final class Brain: ObservableObject {
             guard track.clips[song.selectedScene].bars * 2 <= 16 else { break }
             edit { song in
                 var clip = song.tracks[song.selectedTrack].clips[song.selectedScene]
-                let old = clip.notes
-                clip.notes += old.map { n in
-                    var m = n; m.step += clip.bars * 16; return m
+                let span = clip.bars * 16
+                // Clear hidden (kept-after-shrink) notes in the destination
+                // range, then copy only the LOOP's notes into it.
+                clip.notes.removeAll { $0.step >= span && $0.step < span * 2 }
+                let inLoop = clip.notes.filter { $0.step < span }
+                clip.notes += inLoop.map { n in
+                    var m = n; m.step += span; return m
                 }
                 clip.bars *= 2
                 song.tracks[song.selectedTrack].clips[song.selectedScene] = clip
@@ -2011,8 +2016,7 @@ final class Brain: ObservableObject {
             guard newBars != bars else { break } // no-op detent: skip undo push
             edit { song in
                 var clip = song.tracks[song.selectedTrack].clips[song.selectedScene]
-                if newBars < clip.bars { clip.notes.removeAll { $0.step >= newBars * 16 } }
-                clip.bars = newBars
+                clip.bars = newBars   // notes past the end are kept, silent
                 song.tracks[song.selectedTrack].clips[song.selectedScene] = clip
             }
         case .none:
@@ -2369,8 +2373,7 @@ final class Brain: ObservableObject {
         guard newBars != clip0.bars else { return }
         edit { song in
             var clip = song.tracks[song.selectedTrack].clips[song.selectedScene]
-            if newBars < clip.bars { clip.notes.removeAll { $0.step >= newBars * 16 } }
-            clip.bars = newBars
+            clip.bars = newBars   // notes past the end are kept, silent
             song.tracks[song.selectedTrack].clips[song.selectedScene] = clip
         }
         showOverlay("LOOP", Double(newBars) / 16, "\(newBars) BAR\(newBars > 1 ? "S" : "")")

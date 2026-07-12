@@ -79,16 +79,21 @@ final class Brain: ObservableObject {
     private var scaleRow = 0   // scale menu: 0 layout, 1 key, 2 scale
 
     // Workflow settings (manual ch 13) — device settings, persisted outside the song.
-    private var countInOn = UserDefaults.standard.bool(forKey: "wf.countIn")
-    private var autoloadOn = UserDefaults.standard.bool(forKey: "wf.autoload")
+    // Manual 13.3: count-in and autoload are both ON by default.
+    private var countInOn = UserDefaults.standard.object(forKey: "wf.countIn") == nil
+        ? true : UserDefaults.standard.bool(forKey: "wf.countIn")
+    private var autoloadOn = UserDefaults.standard.object(forKey: "wf.autoload") == nil
+        ? true : UserDefaults.standard.bool(forKey: "wf.autoload")
     private var workflowRow = 0   // 0 quantize, 1 grid, 2 count-in, 3 autoload
     /// Step Grid (manual 13.2): what one step button represents. Triplet
     /// grids deactivate every 4th button (12 usable per page).
     static let stepGrids: [(name: String, size: Double, triplet: Bool)] = [
-        ("1/8", 2, false), ("1/16", 1, false), ("1/16T", 2.0 / 3, true), ("1/32", 0.5, false),
+        ("1/8", 2, false), ("1/8T", 4.0 / 3, true), ("1/16", 1, false),
+        ("1/16T", 2.0 / 3, true), ("1/32", 0.5, false), ("1/32T", 1.0 / 3, true),
+        ("1/64", 0.25, false),
     ]
-    private var gridIdx = UserDefaults.standard.object(forKey: "wf.grid") == nil
-        ? 1 : UserDefaults.standard.integer(forKey: "wf.grid")
+    private var gridIdx = UserDefaults.standard.object(forKey: "wf.grid2") == nil
+        ? 2 : UserDefaults.standard.integer(forKey: "wf.grid2")   // default 1/16
     private var subPage = 0       // page within the bar for fine grids
     /// Record-quantize amount, hardware default 50% (manual 13.1): notes are
     /// pulled halfway to the nearest 1/16 — tight but human.
@@ -113,6 +118,8 @@ final class Brain: ObservableObject {
     private var shiftPressedAt: Date?
     private var muteHeld = false
     private var deleteHeld = false
+    private var deleteDownAt: Date?
+    private var deleteUsed = false     // a delete+target combo fired
     private var copyHeld = false
     private var copyUsed = false            // a copy+target combo fired
     private var copiedClip: Clip?
@@ -121,6 +128,7 @@ final class Brain: ObservableObject {
     private var copiedSteps: (notes: [Note], span: Int)?
     private var copyAnchor: Int?            // range copy: first step pressed
     private var copiedSetSlot: Int?         // Set Overview clipboard
+    private var copyArmed = false           // session: Copy pressed, awaiting source pad
     private var pendingSetPaste: (src: Int, dst: Int)?
     private var pendingSetDelete: Int?
     private var selectedOverviewSlot = 0    // manual 6.1: select, then load
@@ -131,6 +139,7 @@ final class Brain: ObservableObject {
     private var heldExternalKeys: [Int: Int] = [:]  // keybed note -> origin track
     private var heldDrumCells: Set<Int> = []    // drum cells under fingers
     private var heldTracks: Set<Int> = []       // track buttons held (vol gesture)
+    private var trackReturn: (prev: Int, at: Date)?  // momentary track view (ch20)
     private var muteDownAt: Date?
     private var muteUsed = false                // a mute+target combo fired
     private var notePressAt: Date?              // mode-toggle hold preview
@@ -304,6 +313,16 @@ final class Brain: ObservableObject {
             case "left": nudgeHeldSteps(by: -1.0)
             case "right": nudgeHeldSteps(by: 1.0)
             default: break
+            }
+        }
+        // Extending record (manual 14.1): an empty clip keeps growing under
+        // the playhead even during silence, until Record stops.
+        if recording, engine.isPlaying, let target = recordExtendTarget,
+           target.track == song.selectedTrack, target.scene == song.selectedScene {
+            let rel = engine.currentStep - Double(target.start)
+            let needed = min(16, Int(rel) / 16 + 1)
+            if rel >= 0, needed > song.tracks[target.track].clips[target.scene].bars {
+                adjust { $0.tracks[target.track].clips[target.scene].bars = needed }
             }
         }
         if overlay != nil && Date() > overlayUntil {
@@ -488,6 +507,7 @@ final class Brain: ObservableObject {
                 }
                 if down {
                     if deleteHeld {
+                        deleteUsed = true
                         edit { $0.tracks[$0.selectedTrack].clips[$0.selectedScene].notes.removeAll { $0.key == cell } }
                         return
                     }
@@ -524,7 +544,8 @@ final class Brain: ObservableObject {
                             (step: Int(p), offset: p - Double(Int(p)) > 0.01 ? p - Double(Int(p)) : nil)
                         } }
                         insertNotes([cell], atPositions: targets, velocity: velocity,
-                                    extendTo: targets.contains { $0.step >= clipSteps } ? barPage + 1 : nil)
+                                    extendTo: targets.contains { $0.step >= clipSteps } ? barPage + 1 : nil,
+                                    toggle: true)
                         stepEntryUsed.formUnion(heldSteps)
                     }
                     recordHit(key: cell, velocity: velocity)
@@ -556,6 +577,7 @@ final class Brain: ObservableObject {
             }
             guard let note = maybeNote else { return }   // out-of-range pad: inert
             if deleteHeld {
+                deleteUsed = true
                 // Delete all occurrences of this note instead of playing it.
                 if down {
                     edit { song in
@@ -593,7 +615,7 @@ final class Brain: ObservableObject {
                 } }
                 let needsExtension = targets.contains { $0.step >= clipSteps }
                 insertNotes([note], atPositions: targets, velocity: velocity,
-                            extendTo: needsExtension ? barPage + 1 : nil)
+                            extendTo: needsExtension ? barPage + 1 : nil, toggle: true)
                 stepEntryUsed.formUnion(heldSteps)
             }
             recordHit(key: note, velocity: velocity)
@@ -687,11 +709,13 @@ final class Brain: ObservableObject {
         if menu == .browser { cancelBrowserPreview(); menu = .none }
         if menu == .auPresets { cancelAUPresetPreview(); menu = .none }
         if deleteHeld {
+            deleteUsed = true
             edit { $0.tracks[trackIndex].clips[scene] = Clip() }
             return
         }
-        if copyHeld {
+        if copyHeld || copyArmed {
             copyUsed = true
+            copyArmed = false
             copiedClip = song.tracks[trackIndex].clips[scene]
             showOverlay("COPY", 1, "CLIP COPIED")
             return
@@ -725,6 +749,7 @@ final class Brain: ObservableObject {
         let exists = FileManager.default.fileExists(atPath: Self.slotURL(index).path)
             || index == currentSlot
         if deleteHeld {
+            deleteUsed = true
             // Manual 6.1.5: deletion needs a second press to confirm.
             if pendingSetDelete == index {
                 pendingSetDelete = nil
@@ -862,6 +887,7 @@ final class Brain: ObservableObject {
             // double-press = loop that single bar; brief press selects it.
             if menu == .loopLength {
                 if deleteHeld {
+                    deleteUsed = true
                     // Manual 12.4: Delete + bar step clears the bar's notes.
                     loopModeEdited = true
                     edit { song in
@@ -919,6 +945,7 @@ final class Brain: ObservableObject {
             guard step < clip.steps || extendsBar else { return }
             heldSteps.insert(index)
             if deleteHeld {
+                deleteUsed = true
                 stepEntryUsed.insert(index)
                 guard step < clip.steps else { return }
                 let drumKey = track.kind == .drum ? track.selectedPad : nil
@@ -942,6 +969,7 @@ final class Brain: ObservableObject {
                     return p >= pos16 - 0.001 && p < pos16 + g - 0.001 && $0.key == key
                 }) {
                     stepEntryUsed.insert(index)
+                    let wasEmpty = clip.isEmpty
                     edit { song in
                         var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
                         if extendsBar { c.bars = barPage + 1 }
@@ -950,11 +978,17 @@ final class Brain: ObservableObject {
                                             offset: frac > 0.01 ? frac : nil))
                         song.tracks[song.selectedTrack].clips[song.selectedScene] = c
                     }
+                    // Manual 9.5: a first note in an empty clip starts playback.
+                    if wasEmpty, !engine.isPlaying {
+                        purgeGridCapture()
+                        engine.setTransport(playing: true, fromStart: true)
+                    }
                 }
             } else if !heldPads.isEmpty {
                 // Melodic pad-then-step (manual 9.5).
                 insertNotes(Array(heldPads.values), atPositions: [(step, frac > 0.01 ? frac : nil)],
-                            velocity: fullVelocity ? 127 : 100, extendTo: extendsBar ? barPage + 1 : nil)
+                            velocity: fullVelocity ? 127 : 100, extendTo: extendsBar ? barPage + 1 : nil,
+                            toggle: true)
                 stepEntryUsed.insert(index)
             }
         }
@@ -986,7 +1020,7 @@ final class Brain: ObservableObject {
     /// first note lands in an empty clip (manual 9.5). extendTo grows the
     /// loop first (adding notes to the empty extra bar keeps it, 12.1).
     private func insertNotes(_ keys: [Int], atPositions positions: [(step: Int, offset: Double?)],
-                             velocity: Int, extendTo newBars: Int? = nil) {
+                             velocity: Int, extendTo newBars: Int? = nil, toggle: Bool = false) {
         let clip = track.clips[song.selectedScene]
         let wasEmpty = clip.isEmpty
         let limit = (newBars ?? clip.bars) * 16
@@ -996,11 +1030,17 @@ final class Brain: ObservableObject {
             var c = song.tracks[song.selectedTrack].clips[song.selectedScene]
             if let newBars, newBars > c.bars { c.bars = newBars }
             for pos in valid {
-                for key in keys where !c.notes.contains(where: {
-                    $0.step == pos.step && $0.key == key && abs($0.off - (pos.offset ?? 0)) < 0.25
-                }) {
-                    c.notes.append(Note(step: pos.step, key: key, velocity: velocity,
-                                        offset: pos.offset))
+                for key in keys {
+                    let match: (Note) -> Bool = {
+                        $0.step == pos.step && $0.key == key && abs($0.off - (pos.offset ?? 0)) < 0.25
+                    }
+                    if c.notes.contains(where: match) {
+                        // Manual 11.9: pad on an existing note REMOVES it.
+                        if toggle { c.notes.removeAll(where: match) }
+                    } else {
+                        c.notes.append(Note(step: pos.step, key: key, velocity: velocity,
+                                            offset: pos.offset))
+                    }
                 }
             }
             song.tracks[song.selectedTrack].clips[song.selectedScene] = c
@@ -1178,6 +1218,15 @@ final class Brain: ObservableObject {
                 clip.notes += inLoop.map { n in
                     var m = n; m.step += span; return m
                 }
+                // Manual 12.2: doubling includes the automation.
+                if var auto = clip.automation {
+                    for (lane, points) in auto {
+                        let inLoopPts = points.filter { $0.pos < Double(span) }
+                        auto[lane] = points.filter { $0.pos < Double(span) }
+                            + inLoopPts.map { AutoPoint(pos: $0.pos + Double(span), value: $0.value) }
+                    }
+                    clip.automation = auto
+                }
                 clip.bars *= 2
                 song.tracks[song.selectedTrack].clips[song.selectedScene] = clip
             }
@@ -1248,7 +1297,18 @@ final class Brain: ObservableObject {
                 showOverlay("TRACK \(song.selectedTrack + 1)",
                             track.muted ? 1 : 0, track.muted ? "MUTED" : "UNMUTED")
             }
-        case "delete": deleteHeld = down
+        case "delete":
+            deleteHeld = down
+            if down {
+                deleteDownAt = Date()
+                deleteUsed = false
+            } else if !deleteUsed, let at = deleteDownAt,
+                      Date().timeIntervalSince(at) < 0.4, mode == .note,
+                      !track.clips[song.selectedScene].isEmpty {
+                // Manual 12.4: a bare Delete press deletes the current clip.
+                edit { $0.tracks[$0.selectedTrack].clips[$0.selectedScene] = Clip() }
+                showOverlay("DELETE", 0, "CLIP DELETED")
+            }
         case "copy":
             copyHeld = down
             if down {
@@ -1257,13 +1317,18 @@ final class Brain: ObservableObject {
             } else {
                 copyAnchor = nil
                 if !copyUsed {
-                    if copiedSteps != nil || copiedClip != nil || copiedSetSlot != nil {
+                    if copiedSteps != nil || copiedClip != nil || copiedSetSlot != nil || copyArmed {
                         // Manual 11.8: pressing Copy again clears the clipboard.
                         copiedSteps = nil; copiedClip = nil; copiedSetSlot = nil
                         pendingSetPaste = nil
+                        copyArmed = false
                         showOverlay("COPY", 0, "CLIPBOARD CLEARED")
                     } else if mode == .note {
                         duplicateClip()   // manual 12.3: bare Copy press
+                    } else if mode == .session {
+                        // Manual 17.1.3: press Copy, THEN the source pad.
+                        copyArmed = true
+                        showOverlay("COPY", 0.5, "PRESS A CLIP TO COPY")
                     }
                 }
             }
@@ -1271,9 +1336,21 @@ final class Brain: ObservableObject {
             if let n = Int(id.dropFirst(5)) {
                 if down {
                     heldTracks.insert(n - 1)
+                    // Manual ch20: holding an unselected track button views it
+                    // momentarily; releasing restores the prior selection.
+                    if n - 1 != song.selectedTrack, mode == .note, !muteHeld {
+                        trackReturn = (song.selectedTrack, Date())
+                    } else {
+                        trackReturn = nil
+                    }
                     trackButton(n - 1)
                 } else {
                     heldTracks.remove(n - 1)
+                    if let back = trackReturn, back.prev != song.selectedTrack,
+                       Date().timeIntervalSince(back.at) > 0.45, !muteUsed {
+                        trackButton(back.prev)   // momentary view over: return
+                    }
+                    trackReturn = nil
                 }
             }
         case "play":
@@ -1296,12 +1373,22 @@ final class Brain: ObservableObject {
                     loadSlot(selectedOverviewSlot)
                 }
                 if menu == .loopLength { clearLoopModeLatches() }
-                mode = mode == .note ? .session : .note
+                // Manual ch5: from Set Overview the toggle opens SESSION.
+                mode = mode == .note ? .session : (mode == .setOverview ? .session : .note)
+                notePressAt = Date()
                 cancelBrowserPreview()
                 menu = .none
                 copiedClip = nil
                 clearEntryState()
                 refresh()
+            } else {
+                // Manual ch5: HOLD previews the other mode; release returns.
+                if let at = notePressAt, Date().timeIntervalSince(at) > 0.45 {
+                    mode = mode == .note ? .session : .note
+                    clearEntryState()
+                    refresh()
+                }
+                notePressAt = nil
             }
         case "back":
             if down { backButton() }
@@ -1414,7 +1501,10 @@ final class Brain: ObservableObject {
         if engine.isPlaying {
             recording.toggle()
             engine.setRecordingActive(recording)
-            if !recording { pendingRecordings.removeAll() }
+            if !recording {
+                pendingRecordings.removeAll()
+                finishExtendingRecord()
+            }
             recordExtendTarget = recording && track.clips[song.selectedScene].isEmpty
                 ? (song.selectedTrack, song.selectedScene,
                    Int(engine.currentStep) / 16 * 16) : nil
@@ -1623,8 +1713,8 @@ final class Brain: ObservableObject {
 
     private var gridPagesPerBar: Int {
         let g = Self.stepGrids[gridIdx]
-        if g.triplet { return 2 }              // 24 steps, 12 per page
-        return max(1, Int((16 / g.size / 16).rounded(.up)))
+        let perPage = g.triplet ? 12.0 : 16.0  // triplets: every 4th button dead
+        return max(1, Int((16 / g.size / perPage).rounded(.up)))
     }
 
     /// Absolute step numbers for the currently held step buttons. In Loop
@@ -1790,6 +1880,7 @@ final class Brain: ObservableObject {
             let chosen = ((browserIndex % entries.count) + entries.count) % entries.count
             // Delete + wheel press on an AU entry hides it from the browser.
             if deleteHeld, track.kind == .synth, chosen >= SynthPreset.all.count {
+                deleteUsed = true
                 let component = visibleAUs[chosen - SynthPreset.all.count]
                 hiddenAUs.insert(Self.auID(component))
                 UserDefaults.standard.set(Array(hiddenAUs), forKey: "au.hidden")
@@ -1981,7 +2072,7 @@ final class Brain: ObservableObject {
                 UserDefaults.standard.set(quantizePercent, forKey: "wf.quantize")
             case 1:
                 gridIdx = min(Self.stepGrids.count - 1, max(0, gridIdx + delta))
-                UserDefaults.standard.set(gridIdx, forKey: "wf.grid")
+                UserDefaults.standard.set(gridIdx, forKey: "wf.grid2")
                 subPage = 0
             case 2:
                 countInOn = delta > 0
@@ -2108,6 +2199,7 @@ final class Brain: ObservableObject {
         }
         guard poweredOn, mode == .note, let lane = laneKey(index) else { return }
         if deleteHeld {
+            deleteUsed = true
             // Manual 14.2.3: Delete + encoder tap deletes the lane.
             let has = track.clips[song.selectedScene].automation?[lane]?.isEmpty == false
             guard has else { return }
@@ -2360,6 +2452,21 @@ final class Brain: ObservableObject {
         auParamBank[t] = bank
         showOverlay("PARAM BANK \(bank + 1)/\(banks)", Double(bank + 1) / Double(banks),
                     "\(bank * 7 + 1)-\(min(total, bank * 7 + 7)) OF \(total)")
+    }
+
+    /// Manual 14.1: when extending-record stops, the last bar is kept only
+    /// if recording stopped in its second half.
+    private func finishExtendingRecord() {
+        guard let target = recordExtendTarget, engine.isPlaying else { return }
+        let rel = engine.currentStep - Double(target.start)
+        guard rel > 0, song.tracks.indices.contains(target.track) else { return }
+        let fullBars = Int(rel) / 16
+        let fraction = rel - Double(fullBars * 16)
+        let finalBars = max(1, min(16, fullBars + (fraction >= 8 ? 1 : 0)))
+        let clip = song.tracks[target.track].clips[target.scene]
+        if !clip.isEmpty, finalBars != clip.bars {
+            adjust { $0.tracks[target.track].clips[target.scene].bars = finalBars }
+        }
     }
 
     /// Hardware: resize the selected clip's loop by whole bars (1-16),
@@ -3243,7 +3350,9 @@ final class Brain: ObservableObject {
                 } else if i >= loopFrom && i < clip.bars {
                     colors[Self.stepNote(i)] = trackColor
                 } else if i < clip.bars {
-                    colors[Self.stepNote(i)] = trackColor * 0.15 // in clip, outside loop
+                    // Manual 12.1: track color = within the clip (pre-loop
+                    // bars keep their notes, so they read as content).
+                    colors[Self.stepNote(i)] = trackColor * 0.55
                 } else {
                     colors[Self.stepNote(i)] = SIMD3(0.05, 0.05, 0.05)
                 }
@@ -3286,6 +3395,7 @@ final class Brain: ObservableObject {
         for step in Self.legendSteps {
             var level = shiftHeld ? 127 : 0
             if step == 5, metronomeOn { level = max(level, 48) }
+            if step == 6, song.swing > 0.001 { level = max(level, 48) }
             if step == 7, sixteenPitches { level = max(level, 48) }
             if step == 9, fullVelocity { level = max(level, 48) }
             if step == 10, repeatActive { level = max(level, 48) }
